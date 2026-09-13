@@ -30,12 +30,20 @@ export function GetTreeForNode(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetTreeForNode'](arg1, arg2, arg3);
 }
 
+export function SaveParameterValue(arg1) {
+  return window['go']['main']['App']['SaveParameterValue'](arg1);
+}
+
 export function SaveRelationValue(arg1) {
   return window['go']['main']['App']['SaveRelationValue'](arg1);
 }
 
 export function SearchNodesForSelect(arg1, arg2) {
   return window['go']['main']['App']['SearchNodesForSelect'](arg1, arg2);
+}
+
+export function SearchParametersForSelect(arg1) {
+  return window['go']['main']['App']['SearchParametersForSelect'](arg1);
 }
 
 export function UpdateObject(arg1) {

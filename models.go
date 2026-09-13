@@ -33,6 +33,7 @@ type ParameterValueEntity struct {
 	ParameterID    string  `json:"parameterId"`
 	ParameterCode  string  `json:"parameterCode"`  // JOIN met 'parameters'
 	ParameterLabel string  `json:"parameterLabel"` // JOIN met 'parameters'
+	DataType       string  `json:"dataType"`       // JOIN met 'parameters'
 	TargetID       string  `json:"targetId"`
 	TargetType     string  `json:"targetType"`
 	Value          string  `json:"value"`

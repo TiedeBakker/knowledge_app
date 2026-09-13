@@ -16,8 +16,12 @@ export function GetRelationsForTarget(arg1:string):Promise<Array<main.RelationVa
 
 export function GetTreeForNode(arg1:string,arg2:number,arg3:number):Promise<main.TreeNodeData>;
 
+export function SaveParameterValue(arg1:main.ParameterValueEntity):Promise<void>;
+
 export function SaveRelationValue(arg1:main.RelationValueEntity):Promise<void>;
 
 export function SearchNodesForSelect(arg1:string,arg2:number):Promise<Array<main.ObjectEntity>>;
+
+export function SearchParametersForSelect(arg1:string):Promise<Array<main.ParameterDefinition>>;
 
 export function UpdateObject(arg1:main.ObjectEntity):Promise<void>;

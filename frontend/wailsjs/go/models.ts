@@ -5,6 +5,7 @@ export namespace main {
 	    parameterId: string;
 	    parameterCode: string;
 	    parameterLabel: string;
+	    dataType: string;
 	    targetId: string;
 	    targetType: string;
 	    value: string;
@@ -25,6 +26,7 @@ export namespace main {
 	        this.parameterId = source["parameterId"];
 	        this.parameterCode = source["parameterCode"];
 	        this.parameterLabel = source["parameterLabel"];
+	        this.dataType = source["dataType"];
 	        this.targetId = source["targetId"];
 	        this.targetType = source["targetType"];
 	        this.value = source["value"];
@@ -131,6 +133,26 @@ export namespace main {
 		}
 	}
 	
+	export class ParameterDefinition {
+	    id: string;
+	    label: string;
+	    code: string;
+	    dataType: string;
+	    unit?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ParameterDefinition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.code = source["code"];
+	        this.dataType = source["dataType"];
+	        this.unit = source["unit"];
+	    }
+	}
 	
 	export class RelationTypeEntity {
 	    id: string;

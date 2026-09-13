@@ -3,7 +3,9 @@ import './NodeEditorModal.css';
 import { GetParametersForTarget, GetRelationsForTarget } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import { RelationEditorModal } from './RelationEditorModal';
+import { ParameterValueEditorModal } from './ParameterValueEditorModal'; // <-- 1. IMPORT TOEVOEGEN
 import { getInboundRelationLabel, getOutboundRelationLabel } from '../utils/relationUtils';
+import { isoToLocalDatetime, localDatetimeToIso, formatDisplayDateTime } from '../utils/dateUtils';
 
 interface Props {
   node: main.ObjectEntity | null;
@@ -11,24 +13,6 @@ interface Props {
   onClose: () => void;
   onSave?: (updatedNode: main.ObjectEntity) => Promise<void> | void;
 }
-
-const isoToLocalDatetime = (isoStr?: string | null): string => {
-  if (!isoStr) return '';
-  try {
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return '';
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  } catch {
-    return '';
-  }
-};
-
-const localDatetimeToIso = (localStr: string): string | undefined => {
-  if (!localStr) return undefined;
-  const d = new Date(localStr);
-  return isNaN(d.getTime()) ? undefined : d.toISOString();
-};
 
 export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave }) => {
   const [initialData, setInitialData] = useState<main.ObjectEntity | null>(null);
@@ -46,6 +30,11 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
   const [fixedSourceId, setFixedSourceId] = useState<string | undefined>(undefined);
   const [fixedTargetId, setFixedTargetId] = useState<string | undefined>(undefined);
 
+  // States voor de ParameterValueEditorModal
+  const [selectedParamValue, setSelectedParamValue] = useState<main.ParameterValueEntity | null>(null);
+  const [isParamModalOpen, setIsParamModalOpen] = useState<boolean>(false);
+  const [isMeetwaardeMode, setIsMeetwaardeMode] = useState<boolean>(false);
+
   useEffect(() => {
     if (node && isOpen) {
       setInitialData({ ...node });
@@ -53,7 +42,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
       setLoadingDetails(true);
 
-      // Parallel parameters en relaties ophalen uit SQLite
       Promise.all([
         GetParametersForTarget(node.id),
         GetRelationsForTarget(node.id)
@@ -129,17 +117,46 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
     }
   };
 
-  // Handlers voor Toevoegen knoppen
+  // Handlers voor Parameter-modal
+  const refreshParameters = () => {
+    if (formData?.id) {
+      GetParametersForTarget(formData.id).then((params) => setParameters(params || []));
+    }
+  };
+
+  const handleAddProperty = () => {
+    setSelectedParamValue(null);
+    setIsMeetwaardeMode(false);
+    setIsParamModalOpen(true);
+  };
+
+  const handleAddMeasurement = () => {
+    setSelectedParamValue(null);
+    setIsMeetwaardeMode(true);
+    setIsParamModalOpen(true);
+  };
+
+  const handleEditParamValue = (pv: main.ParameterValueEntity) => {
+    setSelectedParamValue(pv);
+    setIsMeetwaardeMode(Boolean(pv.validFrom && pv.validTo && pv.validFrom === pv.validTo));
+    setIsParamModalOpen(true);
+  };
+
+  // Met expliciete typering 'main.ParameterValueEntity' voor TypeScript
+  const properties = parameters.filter((p: main.ParameterValueEntity) => !p.validTo || p.validFrom !== p.validTo);
+  const measurements = parameters.filter((p: main.ParameterValueEntity) => p.validTo && p.validFrom === p.validTo);
+
+  // Handlers voor Relatie-modal
   const handleAddInbound = () => {
     setSelectedRelation(null);
     setFixedSourceId(undefined);
-    setFixedTargetId(formData.id); // Vastzetten als Target (inkomend)
+    setFixedTargetId(formData.id);
     setIsRelationModalOpen(true);
   };
 
   const handleAddOutbound = () => {
     setSelectedRelation(null);
-    setFixedSourceId(formData.id); // Vastzetten als Source (uitgaand)
+    setFixedSourceId(formData.id);
     setFixedTargetId(undefined);
     setIsRelationModalOpen(true);
   };
@@ -185,7 +202,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
                 onClick={() => handleEditRelation(rel)}
                 style={{ padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px' }}
               >
-                {/* Gebruik van de ingaande omschrijving (1e deel van 'ingaand|uitgaand') */}
                 <div style={{ fontWeight: 'bold', color: '#007acc' }}>
                   {getInboundRelationLabel(rel.relationLabel)} ✏️
                 </div>
@@ -217,7 +233,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
               </button>
             </div>
 
-            {/* ID */}
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>ID (UUIDv7):</label>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -233,7 +248,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
               </div>
             </div>
 
-            {/* LABEL */}
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
                 Label {isLabelModified && <span style={{ color: '#ffa726' }}>(gewijzigd)</span>}
@@ -246,7 +260,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
               />
             </div>
 
-            {/* IS CONFIDENTIAL */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -269,7 +282,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
             <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '4px 0' }} />
 
-            {/* VALID FROM */}
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
                 Geldig vanaf (validFrom) {isValidFromModified && <span style={{ color: '#ffa726' }}>(gewijzigd)</span>}:
@@ -282,7 +294,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
               />
             </div>
 
-            {/* VALID TO */}
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
                 Geldig tot (validTo) {isValidToModified && <span style={{ color: '#ffa726' }}>(gewijzigd)</span>}:
@@ -295,7 +306,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
               />
             </div>
 
-            {/* DELETED AT */}
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
                 Verwijderd op (deletedAt) {isDeletedAtModified && <span style={{ color: '#ffa726' }}>(gewijzigd)</span>}:
@@ -322,7 +332,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
                 onClick={() => handleEditRelation(rel)}
                 style={{ padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px' }}
               >
-                {/* Gebruik van de uitgaande omschrijving (2e deel van 'ingaand|uitgaand') */}
                 <div style={{ fontWeight: 'bold', color: '#007acc' }}>
                   {getOutboundRelationLabel(rel.relationLabel)} ✏️
                 </div>
@@ -335,32 +344,90 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
         {/* PARAMETERS TABEL */}
         <div style={{ border: '1px solid #e0e0e0', borderRadius: '6px', padding: '16px', marginBottom: '20px' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Parameters & Metingen</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem' }}>Parameters & Metingen</h3>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={handleAddProperty} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                + Eigenschap
+              </button>
+              <button onClick={handleAddMeasurement} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                + Meting
+              </button>
+            </div>
+          </div>
+
           {loadingDetails ? (
             <p style={{ fontSize: '0.85rem' }}>Laden...</p>
           ) : parameters.length > 0 ? (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #ccc', textAlign: 'left' }}>
-                  <th style={{ padding: '6px' }}>Code</th>
-                  <th style={{ padding: '6px' }}>Label</th>
-                  <th style={{ padding: '6px' }}>Waarde</th>
-                  <th style={{ padding: '6px' }}>Eenheid</th>
-                </tr>
-              </thead>
-              <tbody>
-                {parameters.map((p) => (
-                  <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '6px' }}><strong>{p.parameterCode}</strong></td>
-                    <td style={{ padding: '6px' }}>{p.parameterLabel}</td>
-                    <td style={{ padding: '6px' }}>{p.value}</td>
-                    <td style={{ padding: '6px' }}>{p.unit || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+              {/* 1. Kenmerken & Eigenschappen */}
+              <div>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#555' }}>Eigenschappen & Status</h4>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #ccc', textAlign: 'left' }}>
+                      <th style={{ padding: '6px' }}>Code</th>
+                      <th style={{ padding: '6px' }}>Label</th>
+                      <th style={{ padding: '6px' }}>Waarde</th>
+                      <th style={{ padding: '6px' }}>Eenheid</th>
+                      <th style={{ padding: '6px' }}>Geldig Vanaf</th>
+                      <th style={{ padding: '6px' }}>Geldig Tot</th>
+                      <th style={{ padding: '6px' }}>Acties</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {properties.map((p: main.ParameterValueEntity) => (
+                      <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: '6px' }}><strong>{p.parameterCode}</strong></td>
+                        <td style={{ padding: '6px' }}>{p.parameterLabel}</td>
+                        <td style={{ padding: '6px' }}>{p.value}</td>
+                        <td style={{ padding: '6px' }}>{p.unit || '-'}</td>
+                        <td style={{ padding: '6px' }}>{formatDisplayDateTime(p.validFrom)}</td>
+                        <td style={{ padding: '6px' }}>{p.validTo ? formatDisplayDateTime(p.validTo) : 'Heden'}</td>
+                        <td style={{ padding: '6px' }}>
+                          <button onClick={() => handleEditParamValue(p)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>✏️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 2. Meetwaarden / Time-series */}
+              {measurements.length > 0 && (
+                <div>
+                  <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#555' }}>Meetreeksen (Puntmetingen)</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #ccc', textAlign: 'left' }}>
+                        <th style={{ padding: '6px' }}>Datum/Tijd</th>
+                        <th style={{ padding: '6px' }}>Parameter</th>
+                        <th style={{ padding: '6px' }}>Meetwaarde</th>
+                        <th style={{ padding: '6px' }}>Eenheid</th>
+                        <th style={{ padding: '6px' }}>Acties</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {measurements.map((p: main.ParameterValueEntity) => (
+                        <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '6px' }}>{formatDisplayDateTime(p.validFrom)}</td>
+                          <td style={{ padding: '6px' }}>{p.parameterLabel}</td>
+                          <td style={{ padding: '6px' }}><strong>{p.value}</strong></td>
+                          <td style={{ padding: '6px' }}>{p.unit || '-'}</td>
+                          <td style={{ padding: '6px' }}>
+                            <button onClick={() => handleEditParamValue(p)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>✏️</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+            </div>
           ) : (
-            <p style={{ fontSize: '0.85rem', color: '#888', margin: 0 }}>Geen parameters gekoppeld.</p>
+            <p style={{ fontSize: '0.85rem', color: '#888', margin: 0 }}>Geen parameters of metingen gekoppeld.</p>
           )}
         </div>
 
@@ -371,7 +438,7 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
           </button>
         </div>
 
-        {/* MODAL PLACEHOLDER ONDERAAN RENDEREN */}
+        {/* MODALS */}
         <RelationEditorModal
           isOpen={isRelationModalOpen}
           relation={selectedRelation}
@@ -379,6 +446,16 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
           fixedTargetId={fixedTargetId}
           onClose={() => setIsRelationModalOpen(false)}
           onSaved={refreshRelations}
+        />
+
+        <ParameterValueEditorModal
+          isOpen={isParamModalOpen}
+          targetId={formData.id}
+          targetType="object"
+          initialValue={selectedParamValue}
+          isMeetwaardeMode={isMeetwaardeMode}
+          onClose={() => setIsParamModalOpen(false)}
+          onSaved={refreshParameters}
         />
 
       </div>

@@ -132,7 +132,7 @@ func (a *App) GetParametersForTarget(targetID string) ([]ParameterValueEntity, e
 
 	query := `
 		SELECT 
-			pv.id, pv.parameter_id, p.code, p.label, pv.target_id, pv.target_type, 
+			pv.id, pv.parameter_id, p.code, p.label,p.data_type, pv.target_id, pv.target_type, 
 			pv.value, p.unit, pv.is_confidential, pv.valid_from, pv.valid_to
 		FROM parameter_values pv
 		JOIN parameters p ON pv.parameter_id = p.id
@@ -148,7 +148,7 @@ func (a *App) GetParametersForTarget(targetID string) ([]ParameterValueEntity, e
 		var pv ParameterValueEntity
 		var unit, validTo sql.NullString
 		if err := rows.Scan(
-			&pv.ID, &pv.ParameterID, &pv.ParameterCode, &pv.ParameterLabel,
+			&pv.ID, &pv.ParameterID, &pv.ParameterCode, &pv.ParameterLabel, &pv.DataType,
 			&pv.TargetID, &pv.TargetType, &pv.Value, &unit, &pv.IsConfidential,
 			&pv.ValidFrom, &validTo,
 		); err != nil {
@@ -627,5 +627,67 @@ func (a *App) DeleteRelationValue(id string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	query := `UPDATE relation_values SET deleted_at = ? WHERE id = ?`
 	_, err := a.db.ExecContext(a.ctx, query, now, id)
+	return err
+}
+// ParameterDefinition struct voor autocomplete & selecties
+type ParameterDefinition struct {
+	ID        string  `json:"id"`
+	Label     string  `json:"label"`
+	Code      string  `json:"code"`
+	DataType  string  `json:"dataType"`
+	Unit      *string `json:"unit,omitempty"`
+}
+
+// SearchParametersForSelect zoekt in stamgegevens tabel 'parameters'
+func (a *App) SearchParametersForSelect(query string) ([]ParameterDefinition, error) {
+	sqlQuery := `
+		SELECT id, label, code, data_type, unit 
+		from parameters 
+		WHERE deleted_at IS NULL 
+		  AND (label LIKE ? OR code LIKE ?)
+		LIMIT 25
+	`
+	searchTerm := "%" + query + "%"
+	rows, err := a.db.Query(sqlQuery, searchTerm, searchTerm)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ParameterDefinition
+	for rows.Next() {
+		var p ParameterDefinition
+		if err := rows.Scan(&p.ID, &p.Label, &p.Code, &p.DataType, &p.Unit); err != nil {
+			return nil, err
+		}
+		results = append(results, p)
+	}
+	return results, nil
+}
+
+// SaveParameterValue voegt een nieuwe parameterwaarde toe of werkt deze bij
+func (a *App) SaveParameterValue(pv ParameterValueEntity) error {
+	if pv.ID == "" {
+		pv.ID = NewUUIDv7()
+	}
+	
+	query := `
+		INSERT INTO parameter_values (
+			id, parameter_id, target_id, target_type, value, 
+			is_confidential, valid_from, valid_to, updated_at, deleted_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			value = excluded.value,
+			is_confidential = excluded.is_confidential,
+			valid_from = excluded.valid_from,
+			valid_to = excluded.valid_to,
+			updated_at = excluded.updated_at,
+			deleted_at = excluded.deleted_at
+	`
+	
+	_, err := a.db.Exec(query,
+		pv.ID, pv.ParameterID, pv.TargetID, pv.TargetType, pv.Value,
+		pv.IsConfidential, pv.ValidFrom, pv.ValidTo, pv.UpdatedAt, pv.DeletedAt,
+	)
 	return err
 }

@@ -1,0 +1,10 @@
+build/bin
+node_modules
+frontend/dist
+
+# Database uitsluiten (alle .db en .sqlite bestanden)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3

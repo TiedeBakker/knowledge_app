@@ -10,8 +10,11 @@ import (
 	"time"
 	"os"
 	"path/filepath"
-
 	_ "github.com/glebarez/go-sqlite"
+	"os/exec"
+	"runtime"
+	"strings"
+	"regexp"
 )
 
 type App struct {
@@ -690,4 +693,40 @@ func (a *App) SaveParameterValue(pv ParameterValueEntity) error {
 		pv.IsConfidential, pv.ValidFrom, pv.ValidTo, pv.UpdatedAt, pv.DeletedAt,
 	)
 	return err
+}
+// Matcht zowel "/" als "\" (bijv: 2024/W29/ of 2024\W29\)
+var mediaPathRegex = regexp.MustCompile(`^\d{4}[/\\]W\d{1,2}[/\\]`)
+
+func (a *App) OpenFile(filePath string) error {
+	cleanPath := strings.TrimSpace(filePath)
+
+	// 1. DArchieven omzetten
+	if strings.HasPrefix(cleanPath, "http://localhost/DArchieven") {
+		cleanPath = strings.Replace(cleanPath, "http://localhost/DArchieven", "../DArchieven", 1)
+	} else if mediaPathRegex.MatchString(cleanPath) {
+		// 2. Media paden (YYYY/Wxx/...) omzetten
+		cleanPath = "../media/" + cleanPath
+	}
+
+	// Zet eventuele slashes om naar de juiste OS path separators (\ voor Windows)
+	cleanPath = filepath.FromSlash(cleanPath)
+
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		// cmd /c start vereist dubbele quotes voor de titel-parameter als het pad spaties/quotes bevat
+		cmd = exec.Command("cmd", "/c", "start", "", cleanPath)
+	case "darwin":
+		cmd = exec.Command("open", cleanPath)
+	default:
+		cmd = exec.Command("xdg-open", cleanPath)
+	}
+
+	err := cmd.Run()
+	if err != nil {
+		// Toon in de foutmelding het EXACTE pad dat Go heeft geprobeerd te openen
+		return fmt.Errorf("kan bestand niet openen op pad '%s': %v", cleanPath, err)
+	}
+	return nil
 }

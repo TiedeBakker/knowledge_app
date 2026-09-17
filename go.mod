@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/glebarez/go-sqlite v1.23.0
+	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
 	github.com/wailsapp/wails/v2 v2.15.0
 )
 

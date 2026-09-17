@@ -132,6 +132,67 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class MediaMetadataJSON {
+	    opnamedatum: string;
+	    oorspronkelijkFormaat: string;
+	    latitude: string;
+	    longitude: string;
+	    device: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaMetadataJSON(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.opnamedatum = source["opnamedatum"];
+	        this.oorspronkelijkFormaat = source["oorspronkelijkFormaat"];
+	        this.latitude = source["latitude"];
+	        this.longitude = source["longitude"];
+	        this.device = source["device"];
+	    }
+	}
+	export class MediaImportItem {
+	    originalPath: string;
+	    fileName: string;
+	    mediaType: string;
+	    destinationPath: string;
+	    hasExactDate: boolean;
+	    metadata: MediaMetadataJSON;
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaImportItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.originalPath = source["originalPath"];
+	        this.fileName = source["fileName"];
+	        this.mediaType = source["mediaType"];
+	        this.destinationPath = source["destinationPath"];
+	        this.hasExactDate = source["hasExactDate"];
+	        this.metadata = this.convertValues(source["metadata"], MediaMetadataJSON);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class ParameterDefinition {
 	    id: string;

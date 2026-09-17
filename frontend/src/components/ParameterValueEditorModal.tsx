@@ -1,11 +1,10 @@
-// src/components/ParameterValueEditorModal.tsx
 import React, { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
 import { ParameterSearchSelect, ParameterOption } from './ParameterSearchSelect';
-import { SaveParameterValue } from '../../wailsjs/go/main/App';
+import { SaveParameterValue, OpenFile } from '../../wailsjs/go/main/App'; // <- Importeer OpenFile
 import { isoToLocalDatetime, localDatetimeToIso } from '../utils/dateUtils';
 import { RichTextEditorModal } from './RichTextEditorModal';
-import { Edit3 } from 'lucide-react';
+import { Edit3, ExternalLink, FileText } from 'lucide-react';
 
 interface Props {
     isOpen: boolean;
@@ -41,7 +40,6 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
                 setValidToLocal(isoToLocalDatetime(initialValue.validTo));
                 setIsConfidential(initialValue.isConfidential || false);
 
-                // Bepaal dataType: controleer expliciet de entity, of 'dataType' / 'dataTypeCode' eigenschappen
                 const rawDataType =
                     (initialValue as any).dataType ||
                     (initialValue as any).dataTypeCode ||
@@ -94,9 +92,35 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
         }
     };
 
-    // Herken zowel 'markdown' als 'richtext' of 'html'
-    const currentDataType = selectedParam?.dataType?.toLowerCase() || 'onbekend';
+    // Help-functie om het bestand te openen via Go
+    const handleOpenFile = async () => {
+        if (!value) return;
+        try {
+            await OpenFile(value);
+        } catch (err) {
+            alert(`Kon bestand niet openen: ${err}`);
+        }
+    };
+
+    const currentDataType = selectedParam?.dataType?.toLowerCase() || 'string';
     const isMarkdown = ['markdown', 'richtext', 'html'].includes(currentDataType);
+    const isFile = currentDataType === 'file';
+
+    // Helper functie voor de weergave van relatieve paden
+    const getRelativePathPreview = (val: string): string => {
+        if (!val) return '';
+
+        if (val.startsWith('http://localhost/DArchieven')) {
+            return val.replace('http://localhost/DArchieven', '../DArchieven');
+        }
+
+        // Herken "2024/W29/..." met een reguliere expressie
+        if (/^\d{4}\/W\d{1,2}\//.test(val)) {
+            return `../media/${val}`;
+        }
+
+        return val;
+    };
 
     return (
         <>
@@ -107,9 +131,12 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
             }}>
                 <div style={{
                     background: '#fff', padding: '20px', borderRadius: '8px',
-                    width: '450px', display: 'flex', flexDirection: 'column', gap: '12px'
+                    width: '480px', display: 'flex', flexDirection: 'column', gap: '12px',
+                    color: '#1e293b', fontFamily: 'sans-serif'
                 }}>
-                    <h3>{initialValue ? 'Parameterwaarde Bewerken' : 'Parameterwaarde Toevoegen'}</h3>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem' }}>
+                        {initialValue ? 'Parameterwaarde Bewerken' : 'Parameterwaarde Toevoegen'}
+                    </h3>
 
                     {!initialValue && (
                         <div>
@@ -119,39 +146,29 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
                     )}
 
                     <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                             <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
                                 Waarde {selectedParam?.unit ? `(${selectedParam.unit})` : ''}
                             </label>
-                            {/* Debug indicator van het actieve data_type */}
                             <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
-                                type: {currentDataType} | ID: {selectedParam?.value || initialValue?.parameterId || 'onbekend'}
+                                type: {currentDataType}
                             </span>
                         </div>
 
-                        {isMarkdown ? (
-                            <div style={{ marginTop: '6px' }}>
+                        {/* A. WEERGAVE VOOR MARKDOWN */}
+                        {isMarkdown && (
+                            <div>
                                 <button
                                     type="button"
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
-                                        console.log("Klik op bewerken ontvangen! isRichTextOpen wordt true");
                                         setIsRichTextOpen(true);
                                     }}
                                     style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        padding: '8px 12px',
-                                        background: '#0f172a',
-                                        color: '#38bdf8',
-                                        border: '1px solid #334155',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        fontSize: '0.85rem',
-                                        width: '100%',
-                                        justifyContent: 'center'
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px',
+                                        background: '#007acc', color: '#fff', border: 'none', borderRadius: '4px',
+                                        cursor: 'pointer', fontSize: '0.85rem', width: '100%', justifyContent: 'center'
                                     }}
                                 >
                                     <Edit3 size={16} />
@@ -161,26 +178,67 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
                                 {value && (
                                     <div
                                         style={{
-                                            marginTop: '6px',
-                                            padding: '8px',
-                                            background: '#f8fafc',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '4px',
-                                            maxHeight: '100px',
-                                            overflowY: 'auto',
-                                            fontSize: '0.8rem',
-                                            color: '#475569'
+                                            marginTop: '6px', padding: '8px', background: '#f8fafc',
+                                            border: '1px solid #e2e8f0', borderRadius: '4px',
+                                            maxHeight: '100px', overflowY: 'auto', fontSize: '0.8rem', color: '#475569'
                                         }}
                                         dangerouslySetInnerHTML={{ __html: value }}
                                     />
                                 )}
                             </div>
-                        ) : (
+                        )}
+
+                        {/* B. WEERGAVE VOOR BESTANDEN (FILE) */}
+                        {isFile && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <input
+                                    type="text"
+                                    value={value}
+                                    onChange={(e) => setValue(e.target.value)}
+                                    placeholder="2024/W29/... of http://localhost/DArchieven/..."
+                                    style={{ width: '100%', padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                                />
+
+                                {value && (
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                                            <FileText size={16} style={{ color: '#007acc', flexShrink: 0 }} />
+                                            <span
+                                                style={{ fontSize: '0.75rem', color: '#475569', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}
+                                                title={getRelativePathPreview(value)}
+                                            >
+                                                {getRelativePathPreview(value)}
+                                            </span>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={handleOpenFile}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px',
+                                                background: '#ffffff', border: '1px solid #007acc', color: '#007acc',
+                                                borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500, flexShrink: 0
+                                            }}
+                                            title="Open bestand in standaard viewer"
+                                        >
+                                            <ExternalLink size={14} />
+                                            Openen
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* C. WEERGAVE VOOR OVERIGE DATATYPES (STRING, NUMERIC, ETC.) */}
+                        {!isMarkdown && !isFile && (
                             <input
                                 type="text"
                                 value={value}
                                 onChange={(e) => setValue(e.target.value)}
-                                style={{ width: '100%', padding: '6px', marginTop: '4px', boxSizing: 'border-box' }}
+                                style={{ width: '100%', padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                             />
                         )}
                     </div>
@@ -193,7 +251,7 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
                             type="datetime-local"
                             value={validFromLocal}
                             onChange={(e) => setValidFromLocal(e.target.value)}
-                            style={{ width: '100%', padding: '6px', marginTop: '4px', boxSizing: 'border-box' }}
+                            style={{ width: '100%', padding: '6px', marginTop: '4px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                         />
                     </div>
 
@@ -204,7 +262,7 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
                                 type="datetime-local"
                                 value={validToLocal}
                                 onChange={(e) => setValidToLocal(e.target.value)}
-                                style={{ width: '100%', padding: '6px', marginTop: '4px', boxSizing: 'border-box' }}
+                                style={{ width: '100%', padding: '6px', marginTop: '4px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                             />
                         </div>
                     )}
@@ -220,8 +278,10 @@ export const ParameterValueEditorModal: React.FC<Props> = ({
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                        <button onClick={onClose} style={{ padding: '6px 12px' }}>Annuleren</button>
-                        <button onClick={handleSave} style={{ padding: '6px 12px', background: '#007acc', color: '#fff', border: 'none', borderRadius: '4px' }}>
+                        <button onClick={onClose} style={{ padding: '6px 12px', border: '1px solid #cbd5e1', background: '#fff', borderRadius: '4px', cursor: 'pointer' }}>
+                            Annuleren
+                        </button>
+                        <button onClick={handleSave} style={{ padding: '6px 12px', background: '#007acc', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
                             Opslaan
                         </button>
                     </div>

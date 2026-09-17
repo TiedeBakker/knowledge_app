@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function DeleteRelationValue(arg1:string):Promise<void>;
 
+export function ExecuteMediaImport(arg1:string,arg2:Array<main.MediaImportItem>):Promise<void>;
+
 export function GetAllObjectsSimple():Promise<Array<main.ObjectEntity>>;
 
 export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;
@@ -16,12 +18,18 @@ export function GetRelationsForTarget(arg1:string):Promise<Array<main.RelationVa
 
 export function GetTreeForNode(arg1:string,arg2:number,arg3:number):Promise<main.TreeNodeData>;
 
+export function OpenFile(arg1:string):Promise<void>;
+
 export function SaveParameterValue(arg1:main.ParameterValueEntity):Promise<void>;
 
 export function SaveRelationValue(arg1:main.RelationValueEntity):Promise<void>;
 
+export function ScanMediaDirectory(arg1:string):Promise<Array<main.MediaImportItem>>;
+
 export function SearchNodesForSelect(arg1:string,arg2:number):Promise<Array<main.ObjectEntity>>;
 
 export function SearchParametersForSelect(arg1:string):Promise<Array<main.ParameterDefinition>>;
+
+export function SelectDirectory():Promise<string>;
 
 export function UpdateObject(arg1:main.ObjectEntity):Promise<void>;

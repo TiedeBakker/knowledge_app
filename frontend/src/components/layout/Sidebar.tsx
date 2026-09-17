@@ -1,7 +1,8 @@
 import React from 'react';
 import './Sidebar.css';
 
-export type ModuleType = 'tree-viewer' | 'reporting';
+// 1. Voeg 'media-import' toe aan ModuleType
+export type ModuleType = 'tree-viewer' | 'reporting' | 'media-import';
 
 interface Props {
   activeModule: ModuleType;
@@ -26,6 +27,14 @@ export const Sidebar: React.FC<Props> = ({ activeModule, onSelectModule }) => {
           onClick={() => onSelectModule('reporting')}
         >
           <span className="icon">📊</span> Rapportage
+        </button>
+        
+        {/* 2. Nieuwe knop voor Media Import */}
+        <button
+          className={`nav-button ${activeModule === 'media-import' ? 'active' : ''}`}
+          onClick={() => onSelectModule('media-import')}
+        >
+          <span className="icon">📷</span> Media Import
         </button>
       </nav>
     </aside>

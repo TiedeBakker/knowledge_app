@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { main } from '../../../wailsjs/go/models';
 import { getInboundRelationLabel, getOutboundRelationLabel } from '../../utils/relationUtils';
+import { GetParametersForTarget, OpenFile } from '../../../wailsjs/go/main/App';
 
 interface Props {
   treeData: main.TreeNodeData | null;
@@ -10,18 +11,56 @@ interface Props {
 
 export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onSetCentralNode }) => {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  // State om de bestandspaden per node op te slaan: { [nodeId]: filePath }
+  const [nodeFilePaths, setNodeFilePaths] = useState<{ [nodeId: string]: string | null }>({});
 
   if (!treeData || !treeData.nodes || treeData.nodes.length === 0) {
     return <div style={{ color: '#666', fontStyle: 'italic' }}>Kies een start-node om de grafische boom te bekijken.</div>;
   }
 
-  const nodeMap = new Map<string, main.ObjectEntity>();
-  treeData.nodes.forEach((n) => nodeMap.set(n.id, n));
+  const data = treeData;
 
-  const centralNode = nodeMap.get(treeData.centralNodeId);
+  const nodeMap = new Map<string, main.ObjectEntity>();
+  data.nodes.forEach((n) => nodeMap.set(n.id, n));
+
+  const centralNode = nodeMap.get(data.centralNodeId);
   if (!centralNode) return null;
 
-  // SORTEERFUNCTIE VOOR UITGAANDE RELATIES OP 'VOLGORDE' (zonder RelationEntity type-afhankelijkheid)
+  // Bij hoveren direct controleren of het object een parameter met type 'file' heeft
+  const handleMouseEnter = async (nodeId: string) => {
+    setHoveredNodeId(nodeId);
+
+    // Als we voor deze node nog niet hebben gecachet of er een bestand is:
+    if (!(nodeId in nodeFilePaths)) {
+      try {
+        const params = await GetParametersForTarget(nodeId);
+        const fileParam = params?.find((p: any) => {
+          const dt = (p.dataType || p.dataTypeCode || p.data_type || '').toString().toLowerCase();
+          return dt === 'file' && p.value;
+        });
+
+        setNodeFilePaths((prev) => ({
+          ...prev,
+          [nodeId]: fileParam ? fileParam.value : null
+        }));
+      } catch (err) {
+        console.error("Fout bij ophalen parameters voor node:", nodeId, err);
+        setNodeFilePaths((prev) => ({ ...prev, [nodeId]: null }));
+      }
+    }
+  };
+
+  // Direct het bestand openen
+  const handleQuickOpenFile = async (filePath: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await OpenFile(filePath);
+    } catch (err) {
+      console.error("Fout bij openen van bestand:", err);
+    }
+  };
+
+  // Sorteerfunctie voor uitgaande relaties op 'volgorde'
   const sortOutboundEdges = (edges: any[]) => {
     return [...edges].sort((a, b) => {
       const valA = a.volgorde ?? a.sortOrder ?? a.sort_order ?? a.order ?? 0;
@@ -33,10 +72,11 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
   // FICHE RENDERER
   const renderNodeCard = (node: main.ObjectEntity, isCentral = false, relationLabel?: string) => {
     const isHovered = hoveredNodeId === node.id;
+    const filePath = nodeFilePaths[node.id];
 
     return (
       <div
-        onMouseEnter={() => setHoveredNodeId(node.id)}
+        onMouseEnter={() => handleMouseEnter(node.id)}
         onMouseLeave={() => setHoveredNodeId(null)}
         onDoubleClick={() => onOpenEditor(node)}
         style={{
@@ -150,7 +190,7 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
                 style={{
                   flex: 1,
                   fontSize: '0.7rem',
-                  padding: '3px 6px',
+                  padding: '3px 4px',
                   cursor: 'pointer',
                   borderRadius: '3px',
                   border: '1px solid #ccc',
@@ -158,9 +198,31 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
                   color: '#333',
                   fontWeight: 'bold'
                 }}
+                title="Open Node Editor"
               >
                 ✏️ Bewerken
               </button>
+
+              {/* SLIMME KNOP: Alleen zichtbaar als er daadwerkelijk een bestand is */}
+              {filePath && (
+                <button
+                  onClick={(e) => handleQuickOpenFile(filePath, e)}
+                  style={{
+                    fontSize: '0.7rem',
+                    padding: '3px 6px',
+                    cursor: 'pointer',
+                    borderRadius: '3px',
+                    border: '1px solid #007acc',
+                    background: '#e3f2fd',
+                    color: '#007acc',
+                    fontWeight: 'bold'
+                  }}
+                  title={`Open bestand: ${filePath}`}
+                >
+                  📂 Openen
+                </button>
+              )}
+
               {!isCentral && (
                 <button
                   onClick={(e) => {
@@ -170,7 +232,7 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
                   style={{
                     flex: 1,
                     fontSize: '0.7rem',
-                    padding: '3px 6px',
+                    padding: '3px 4px',
                     cursor: 'pointer',
                     borderRadius: '3px',
                     border: 'none',
@@ -178,6 +240,7 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
                     color: '#fff',
                     fontWeight: 'bold'
                   }}
+                  title="Maak centraal node"
                 >
                   🎯 Centraal
                 </button>
@@ -191,9 +254,9 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
 
   // RECURSIEF: INKOMENDE TAKKEN (LINKS VAN CENTRUM)
   const renderInboundSubTree = (targetId: string, depth: number) => {
-    if (depth > treeData.inLevels) return null;
+    if (depth > data.inLevels) return null;
 
-    const edges = treeData.edges?.filter((e) => e.targetId === targetId) || [];
+    const edges = data.edges?.filter((e) => e.targetId === targetId) || [];
     if (edges.length === 0) return null;
 
     return (
@@ -202,7 +265,6 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
           const sourceNode = nodeMap.get(edge.sourceId);
           if (!sourceNode) return null;
 
-          // Gebruik hier het INKOMENDE label (eerste deel vóór de |)
           const inboundLabel = getInboundRelationLabel(edge.relationLabel);
 
           return (
@@ -223,9 +285,9 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
 
   // RECURSIEF: UITGAANDE TAKKEN (RECHTS VAN CENTRUM)
   const renderOutboundSubTree = (sourceId: string, depth: number) => {
-    if (depth > treeData.outLevels) return null;
+    if (depth > data.outLevels) return null;
 
-    const rawEdges = treeData.edges?.filter((e) => e.sourceId === sourceId) || [];
+    const rawEdges = data.edges?.filter((e) => e.sourceId === sourceId) || [];
     if (rawEdges.length === 0) return null;
 
     const sortedEdges = sortOutboundEdges(rawEdges);
@@ -236,7 +298,6 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
           const targetNode = nodeMap.get(edge.targetId);
           if (!targetNode) return null;
 
-          // Gebruik hier het UITGAANDE label (tweede deel ná de |)
           const outboundLabel = getOutboundRelationLabel(edge.relationLabel);
 
           return (
@@ -260,13 +321,13 @@ export const GraphicalTreeView: React.FC<Props> = ({ treeData, onOpenEditor, onS
       <div style={{ display: 'flex', alignItems: 'flex-start', minWidth: 'max-content' }}>
         
         {/* INKOMEND (LINKS) */}
-        {treeData.inLevels > 0 && renderInboundSubTree(centralNode.id, 1)}
+        {data.inLevels > 0 && renderInboundSubTree(centralNode.id, 1)}
 
         {/* CENTRAAL (MIDDEN) */}
         {renderNodeCard(centralNode, true)}
 
         {/* UITGAAND (RECHTS) */}
-        {treeData.outLevels > 0 && renderOutboundSubTree(centralNode.id, 1)}
+        {data.outLevels > 0 && renderOutboundSubTree(centralNode.id, 1)}
 
       </div>
     </div>

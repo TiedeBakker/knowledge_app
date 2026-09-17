@@ -8,3 +8,17 @@ frontend/dist
 *.db-wal
 *.sqlite
 *.sqlite3
+
+# Tijdelijke mappen en media
+/Nieuwe map/
+/build/
+/portable_magick/
+
+# Afbeeldingen en video's
+*.HEIC
+*.heic
+*.MOV
+*.mov
+*.mp4
+*.exe
+*.dll

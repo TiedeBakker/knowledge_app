@@ -194,6 +194,20 @@ export namespace main {
 	}
 	
 	
+	export class ObjectSelectItem {
+	    id: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ObjectSelectItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	    }
+	}
 	export class ParameterDefinition {
 	    id: string;
 	    label: string;

@@ -12,19 +12,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rwcarlsen/goexif/exif"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Constanten uit KESY DDL / UUID Specificaties
+// Constanten / Hardcoded UUID's volgens afspraak
 const (
 	RelIDVerzamelingKoppeling = "019fcdd3-721a-7512-b755-cddd67f43eb6"
 	RelIDMediaKoppeling       = "019fc28b-e55e-7303-8178-efba6993a77b"
-	ObjTypeVerzamelingMedia   = "01a01ad3-e233-73fd-a0cc-e07f887b2b8d"
-	ObjTypeFoto               = "01a016cd-9042-776b-a161-40c1ead8826b"
-	ObjTypeVideo              = "01a016cd-906f-733b-9c7d-88f7cde6068f"
 	ParamIDAfbeelding         = "01a0108f-3880-752d-b961-9e50e167028d"
 	ParamIDMetadata           = "01a01e97-7b40-74bf-ac37-1af9fbebf4d1"
+
+	// Object-ID's voor types
+	ObjectTypeFotoID  = "01a016cd-9042-776b-a161-40c1ead8826b"
+	ObjectTypeVideoID = "01a016cd-906f-733b-9c7d-88f7cde6068f"
 )
 
 type MediaMetadataJSON struct {
@@ -39,12 +41,16 @@ type MediaImportItem struct {
 	OriginalPath    string            `json:"originalPath"`
 	FileName        string            `json:"fileName"`
 	MediaType       string            `json:"mediaType"`       // "FOTO" of "VIDEO"
-	DestinationPath string            `json:"destinationPath"` // bijv: 2005/W17/20050425_104800_foto.jpg
-	HasExactDate    bool              `json:"hasExactDate"`    // false = datum is overgenomen van vorig bestand
+	DestinationPath string            `json:"destinationPath"` // YYYY/Wxx/YYYYMMDD_hhmmss_bestandsnaam
+	HasExactDate    bool              `json:"hasExactDate"`
 	Metadata        MediaMetadataJSON `json:"metadata"`
 }
 
-// SelectDirectory opent een native Windows mappenkiezer
+type ObjectSelectItem struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
 func (a *App) SelectDirectory() (string, error) {
 	selection, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Selecteer de map met media (foto's/video's)",
@@ -55,15 +61,13 @@ func (a *App) SelectDirectory() (string, error) {
 	return selection, nil
 }
 
-// Helper om logberichten naar de frontend te sturen
 func (a *App) logToUI(level string, message string) {
 	runtime.EventsEmit(a.ctx, "media-import-log", map[string]string{
-		"level":   level, // "INFO", "WARN", "ERROR", "SUCCESS"
+		"level":   level,
 		"message": message,
 	})
 }
 
-// ScanMediaDirectory scant een map, converteert HEIC indien nodig, leest EXIF/metadata en genereert bestemmingspaden
 func (a *App) ScanMediaDirectory(dirPath string) ([]MediaImportItem, error) {
 	a.logToUI("INFO", fmt.Sprintf("Starten met scannen van map: %s", dirPath))
 
@@ -72,8 +76,6 @@ func (a *App) ScanMediaDirectory(dirPath string) ([]MediaImportItem, error) {
 		a.logToUI("ERROR", fmt.Sprintf("Kan map niet lezen: %v", err))
 		return nil, fmt.Errorf("fout bij lezen map: %w", err)
 	}
-
-	a.logToUI("INFO", fmt.Sprintf("%d bestanden/mappen gevonden", len(entries)))
 
 	var items []MediaImportItem
 	var lastValidTime time.Time
@@ -88,14 +90,14 @@ func (a *App) ScanMediaDirectory(dirPath string) ([]MediaImportItem, error) {
 		fullPath := filepath.Join(dirPath, entry.Name())
 		originalExt := ext
 
-		// HEIC conversie log
+		// 1. HEIC Conversie
 		if ext == ".heic" {
 			a.logToUI("INFO", fmt.Sprintf("HEIC bestand gedetecteerd: %s, conversie starten...", entry.Name()))
 			jpgPath := strings.TrimSuffix(fullPath, filepath.Ext(fullPath)) + ".jpg"
 			if err := convertHeicToJpg(fullPath, jpgPath); err == nil {
 				fullPath = jpgPath
 				ext = ".jpg"
-				a.logToUI("SUCCESS", fmt.Sprintf("HEIC succesvol omgezet naar JPG met EXIF: %s", filepath.Base(jpgPath)))
+				a.logToUI("SUCCESS", fmt.Sprintf("HEIC succesvol omgezet naar JPG: %s", filepath.Base(jpgPath)))
 			} else {
 				a.logToUI("ERROR", fmt.Sprintf("HEIC conversie mislukt voor %s: %v", entry.Name(), err))
 			}
@@ -111,21 +113,17 @@ func (a *App) ScanMediaDirectory(dirPath string) ([]MediaImportItem, error) {
 			mediaType = "VIDEO"
 		}
 
-		// Metadata extractie op het (geconverteerde) bestand
 		meta, recordTime, exact := a.extractMetadata(fullPath, originalExt)
 
 		if exact {
 			lastValidTime = recordTime
 			hasPreviousTime = true
-			a.logToUI("INFO", fmt.Sprintf("EXIF/Metadata datum gevonden voor %s: %s", entry.Name(), recordTime.Format("2006-01-02 15:04:05")))
 		} else if hasPreviousTime {
 			recordTime = lastValidTime
 			meta.Opnamedatum = recordTime.Format("2006-01-02T15:04:05.0000000Z")
-			a.logToUI("WARN", fmt.Sprintf("Geen EXIF/Metadata voor %s. Datum overgenomen van vorig bestand: %s", entry.Name(), recordTime.Format("2006-01-02 15:04:05")))
 		} else {
 			recordTime = time.Now()
 			meta.Opnamedatum = recordTime.Format("2006-01-02T15:04:05.0000000Z")
-			a.logToUI("WARN", fmt.Sprintf("Geen EXIF/Metadata voor %s. Huidige datum gebruikt.", entry.Name()))
 		}
 
 		year, week := recordTime.ISOWeek()
@@ -146,125 +144,261 @@ func (a *App) ScanMediaDirectory(dirPath string) ([]MediaImportItem, error) {
 	return items, nil
 }
 
-// ExecuteMediaImport voert de definitieve DB-transactie uit en verplaatst bestanden
-func (a *App) ExecuteMediaImport(groupName string, items []MediaImportItem) error {
+// ReindexOutgoingRelations herberekent 'volgorde' in relation_values
+func (a *App) ReindexOutgoingRelations(sourceObjectID string) (int, error) {
+	var count, maxVal int
+	checkQuery := `
+		SELECT COUNT(*), COALESCE(MAX(volgorde), 0) 
+		FROM relation_values 
+		WHERE source_id = ? AND deleted_at IS NULL
+	`
+	err := a.db.QueryRow(checkQuery, sourceObjectID).Scan(&count, &maxVal)
+	if err != nil {
+		return 0, err
+	}
+
+	if maxVal != count || (maxVal == 0 && count > 0) {
+		reindexQuery := `
+			WITH Ordered AS (
+				SELECT id, ROW_NUMBER() OVER (
+					ORDER BY volgorde ASC, id ASC
+				) AS new_order
+				FROM relation_values
+				WHERE source_id = ? AND deleted_at IS NULL
+			)
+			UPDATE relation_values
+			SET volgorde = Ordered.new_order
+			FROM Ordered
+			WHERE relation_values.id = Ordered.id
+		`
+		_, err := a.db.Exec(reindexQuery, sourceObjectID)
+		if err != nil {
+			return 0, fmt.Errorf("fout bij opschonen relatievolgorde: %w", err)
+		}
+		return count, nil
+	}
+
+	return maxVal, nil
+}
+
+func (a *App) ExecuteMediaImport(mode string, groupName string, targetObjectID string, items []MediaImportItem) error {
 	if a.db == nil {
 		return fmt.Errorf("database niet verbonden")
 	}
 
-	tx, err := a.db.Begin()
-	if err != nil {
-		return err
+	if len(items) == 0 {
+		return fmt.Errorf("geen items geselecteerd voor import")
 	}
-	defer tx.Rollback()
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	a.logToUI("INFO", fmt.Sprintf("Starten van import voor %d bestanden (Modus: %s)...", len(items), mode))
 
-	// 1. Controleer of Groepsobject al bestaat (case-insensitive)
-	var groupObjectID string
-	err = tx.QueryRow(`
-		SELECT o.id FROM objects o
-		JOIN relation_values rv ON rv.target_id = o.id
-		WHERE LOWER(o.label) = LOWER(?) 
-		  AND rv.relation_id = ? 
-		  AND rv.source_id = ?
-		  AND o.deleted_at IS NULL LIMIT 1`,
-		groupName, RelIDVerzamelingKoppeling, ObjTypeVerzamelingMedia).Scan(&groupObjectID)
+	exePath, _ := os.Executable()
+	baseMediaDir := filepath.Join(filepath.Dir(exePath), "..", "Media")
 
-	if err == sql.ErrNoRows {
-		// Maak nieuw Verzameling Groepsobject aan
-		groupObjectID = NewUUIDv7()
-		_, err = tx.Exec(`INSERT INTO objects (id, label, is_confidential, valid_from, updated_at) VALUES (?, ?, 0, ?, ?)`,
-			groupObjectID, groupName, now, now)
+	currentMaxOrder := 0
+	if mode == "OBJECT" && targetObjectID != "" {
+		var err error
+		currentMaxOrder, err = a.ReindexOutgoingRelations(targetObjectID)
 		if err != nil {
-			return fmt.Errorf("fout bij aanmaken groepsobject: %w", err)
+			a.logToUI("WARN", fmt.Sprintf("Kon relatievolgorde niet hernummeren: %v", err))
+			currentMaxOrder = 0
+		}
+	}
+
+	importedCount := 0
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+
+	for _, item := range items {
+		cleanRelPath := filepath.ToSlash(item.DestinationPath)
+
+		// 1. Duplicaatcheck in parameter_values
+		var existingMediaID string
+		checkQuery := `
+			SELECT target_id 
+			FROM parameter_values 
+			WHERE parameter_id = ? AND value = ? AND deleted_at IS NULL
+		`
+		err := a.db.QueryRow(checkQuery, ParamIDAfbeelding, cleanRelPath).Scan(&existingMediaID)
+
+		if err == nil {
+			a.logToUI("WARN", fmt.Sprintf("Bestand '%s' bestaat al in de database (Media-ID: %s). Import overgeslagen.", cleanRelPath, existingMediaID))
+			continue
+		} else if err != sql.ErrNoRows {
+			a.logToUI("ERROR", fmt.Sprintf("Fout bij duplicaatcheck voor %s: %v", cleanRelPath, err))
+			continue
 		}
 
-		// Koppel aan Verzameling Media Type
-		relID := NewUUIDv7()
-		_, err = tx.Exec(`INSERT INTO relation_values (id, relation_id, source_id, target_id, is_confidential, valid_from, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)`,
-			relID, RelIDVerzamelingKoppeling, ObjTypeVerzamelingMedia, groupObjectID, now, now)
+		// 2. Fysiek verplaatsen naar ../Media/YYYY/Wxx/...
+		destFullPath := filepath.Join(baseMediaDir, filepath.FromSlash(cleanRelPath))
+		if err := os.MkdirAll(filepath.Dir(destFullPath), 0755); err != nil {
+			a.logToUI("ERROR", fmt.Sprintf("Maken van doelmap mislukt voor %s: %v", item.FileName, err))
+			continue
+		}
+
+		if err := moveFile(item.OriginalPath, destFullPath); err != nil {
+			a.logToUI("ERROR", fmt.Sprintf("Verplaatsen mislukt voor %s: %v", item.FileName, err))
+			continue
+		}
+
+		// 3. Nieuw Media Object en parameters aanmaken
+		mediaID, err := a.insertMediaRecord(item, cleanRelPath, nowISO)
 		if err != nil {
-			return fmt.Errorf("fout bij koppelen groep aan type: %w", err)
+			a.logToUI("ERROR", fmt.Sprintf("Aanmaken DB-record mislukt voor %s: %v", item.FileName, err))
+			continue
+		}
+
+		// 4. Koppelen aan Groep/Verzameling OF aan Source Object
+		if mode == "GROUP" && groupName != "" {
+			err = a.addMediaToGroup(mediaID, groupName, nowISO)
+			if err != nil {
+				a.logToUI("WARN", fmt.Sprintf("Koppelen aan groep '%s' mislukt: %v", groupName, err))
+			}
+		} else if mode == "OBJECT" && targetObjectID != "" {
+			currentMaxOrder++
+
+			relUUID := uuid.New().String()
+			insertRelationQuery := `
+				INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, valid_from, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+			`
+			_, err = a.db.Exec(insertRelationQuery, relUUID, RelIDMediaKoppeling, targetObjectID, mediaID, currentMaxOrder, nowISO, nowISO)
+			if err != nil {
+				a.logToUI("ERROR", fmt.Sprintf("Koppelen aan object mislukt voor %s: %v", item.FileName, err))
+				continue
+			}
+
+			a.logToUI("SUCCESS", fmt.Sprintf("Gekoppeld aan object (volgorde %d): %s", currentMaxOrder, item.FileName))
+		}
+
+		importedCount++
+	}
+
+	a.logToUI("SUCCESS", fmt.Sprintf("Import afgerond! %d van de %d bestanden succesvol verwerkt.", importedCount, len(items)))
+	return nil
+}
+
+func (a *App) insertMediaRecord(item MediaImportItem, relPath string, nowISO string) (string, error) {
+	newUUID := uuid.New().String()
+
+	// Label vastleggen conform afspraak (bijv: "FOTO: 2005/W17/20050425_104800_...")
+	label := fmt.Sprintf("%s: %s", item.MediaType, relPath)
+
+	// 1. Insert in 'objects'
+	queryObj := `
+		INSERT INTO objects (id, label, valid_from, updated_at)
+		VALUES (?, ?, ?, ?)
+	`
+	_, err := a.db.Exec(queryObj, newUUID, label, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij invoegen media-object: %w", err)
+	}
+
+	// 2. Koppeling naar ObjectType Foto of Video
+	typeObjectID := ObjectTypeFotoID
+	if item.MediaType == "VIDEO" {
+		typeObjectID = ObjectTypeVideoID
+	}
+
+	typeRelUUID := uuid.New().String()
+	queryTypeRel := `
+		INSERT INTO relation_values (id, relation_id, source_id, target_id, valid_from, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+	_, err = a.db.Exec(queryTypeRel, typeRelUUID, RelIDMediaKoppeling, typeObjectID, newUUID, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij koppelen van media-type relatie: %w", err)
+	}
+
+	// 3. Parameter 'afbeelding'
+	paramValPadUUID := uuid.New().String()
+	queryParamPath := `
+		INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, valid_from, updated_at)
+		VALUES (?, ?, ?, 'object', ?, ?, ?)
+	`
+	_, err = a.db.Exec(queryParamPath, paramValPadUUID, ParamIDAfbeelding, newUUID, relPath, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij invoegen parameter 'afbeelding': %w", err)
+	}
+
+	// 4. Parameter 'metadata' (JSON)
+	metaJSON, _ := json.Marshal(item.Metadata)
+	paramValMetaUUID := uuid.New().String()
+	queryParamMeta := `
+		INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, valid_from, updated_at)
+		VALUES (?, ?, ?, 'object', ?, ?, ?)
+	`
+	_, err = a.db.Exec(queryParamMeta, paramValMetaUUID, ParamIDMetadata, newUUID, string(metaJSON), nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij invoegen parameter 'metadata': %w", err)
+	}
+
+	return newUUID, nil
+}
+
+func (a *App) addMediaToGroup(mediaID string, groupName string, nowISO string) error {
+	var groupID string
+
+	err := a.db.QueryRow(`SELECT id FROM objects WHERE label = ? AND deleted_at IS NULL`, groupName).Scan(&groupID)
+
+	if err == sql.ErrNoRows {
+		groupID = uuid.New().String()
+		_, err = a.db.Exec(`
+			INSERT INTO objects (id, label, valid_from, updated_at)
+			VALUES (?, ?, ?, ?)
+		`, groupID, groupName, nowISO, nowISO)
+		if err != nil {
+			return err
 		}
 	} else if err != nil {
 		return err
 	}
 
-	// Bepaal basismap relatief t.o.v. de .exe
-	exePath, _ := os.Executable()
-	baseMediaDir := filepath.Join(filepath.Dir(exePath), "..", "Media")
+	maxOrder, _ := a.ReindexOutgoingRelations(groupID)
 
-	// 2. Verwerk items
-	for _, item := range items {
-		cleanRelPath := filepath.ToSlash(item.DestinationPath)
+	relUUID := uuid.New().String()
+	_, err = a.db.Exec(`
+		INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, valid_from, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, relUUID, RelIDVerzamelingKoppeling, groupID, mediaID, maxOrder+1, nowISO, nowISO)
 
-		// Check of bestand al bestaat in DB
-		var mediaObjectID string
-		err := tx.QueryRow(`
-			SELECT target_id FROM parameter_values 
-			WHERE parameter_id = ? AND value = ? AND deleted_at IS NULL LIMIT 1`,
-			ParamIDAfbeelding, cleanRelPath).Scan(&mediaObjectID)
-
-		if err == sql.ErrNoRows {
-			// Nieuw Media Object
-			mediaObjectID = NewUUIDv7()
-			objTypeID := ObjTypeFoto
-			if item.MediaType == "VIDEO" {
-				objTypeID = ObjTypeVideo
-			}
-
-			label := fmt.Sprintf("%s: %s", item.MediaType, cleanRelPath)
-			_, err = tx.Exec(`INSERT INTO objects (id, label, is_confidential, valid_from, updated_at) VALUES (?, ?, 0, ?, ?)`,
-				mediaObjectID, label, now, now)
-			if err != nil {
-				return err
-			}
-
-			// Koppel aan Foto/Video type
-			_, err = tx.Exec(`INSERT INTO relation_values (id, relation_id, source_id, target_id, is_confidential, valid_from, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)`,
-				NewUUIDv7(), RelIDMediaKoppeling, objTypeID, mediaObjectID, now, now)
-			if err != nil {
-				return err
-			}
-
-			// Parameter: afbeelding
-			_, err = tx.Exec(`INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, is_confidential, valid_from, updated_at) VALUES (?, ?, ?, 'object', ?, 0, ?, ?)`,
-				NewUUIDv7(), ParamIDAfbeelding, mediaObjectID, cleanRelPath, now, now)
-			if err != nil {
-				return err
-			}
-
-			// Parameter: METAdata
-			metaBytes, _ := json.Marshal(item.Metadata)
-			_, err = tx.Exec(`INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, is_confidential, valid_from, updated_at) VALUES (?, ?, ?, 'object', ?, 0, ?, ?)`,
-				NewUUIDv7(), ParamIDMetadata, mediaObjectID, string(metaBytes), now, now)
-			if err != nil {
-				return err
-			}
-		}
-
-		// Koppel media object aan groepsobject (Aangepast: Media Object = Source, Groepsobject = Target)
-		_, err = tx.Exec(`INSERT INTO relation_values (id, relation_id, source_id, target_id, is_confidential, valid_from, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)`,
-			NewUUIDv7(), RelIDMediaKoppeling, mediaObjectID, groupObjectID, now, now)
-		if err != nil {
-			return err
-		}
-
-		// 3. Verplaats het fysieke bestand
-		destFullPath := filepath.Join(baseMediaDir, filepath.FromSlash(cleanRelPath))
-		if err := os.MkdirAll(filepath.Dir(destFullPath), 0755); err != nil {
-			return fmt.Errorf("kan map niet aanmaken: %w", err)
-		}
-		if err := moveFile(item.OriginalPath, destFullPath); err != nil {
-			return fmt.Errorf("fout bij verplaatsen bestand: %w", err)
-		}
-	}
-
-	return tx.Commit()
+	return err
 }
 
-// Helper functies
+func (a *App) GetObjectsForSelect(filter string) ([]ObjectSelectItem, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	query := `
+		SELECT id, label 
+		FROM objects 
+		WHERE deleted_at IS NULL `
+
+	var args []interface{}
+	if filter != "" {
+		query += " AND LOWER(label) LIKE LOWER(?) "
+		args = append(args, "%"+filter+"%")
+	}
+	query += " ORDER BY label ASC LIMIT 100"
+
+	rows, err := a.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ObjectSelectItem
+	for rows.Next() {
+		var item ObjectSelectItem
+		if err := rows.Scan(&item.ID, &item.Label); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
+	}
+	return results, nil
+}
+
+// Helpers
 func isSupportedMedia(ext string) bool {
 	switch ext {
 	case ".jpg", ".jpeg", ".png", ".gif", ".mp4", ".mov", ".avi", ".mkv":
@@ -283,7 +417,6 @@ func isVideoExt(ext string) bool {
 	}
 }
 
-// Fallback: extraheert datum uit bestandsnaam zoals 20240122_14.09.48_... of 20240122_140948_...
 func extractDateFromFileName(filename string) (time.Time, bool) {
 	re := regexp.MustCompile(`(\d{4})(\d{2})(\d{2})_(\d{2})[\.:]?(\d{2})[\.:]?(\d{2})`)
 	matches := re.FindStringSubmatch(filename)
@@ -311,12 +444,10 @@ func (a *App) extractMetadata(path string, origExt string) (MediaMetadataJSON, t
 		ext = strings.ToLower(filepath.Ext(path))
 	}
 
-	// 1. Als het een video is, direct via ffprobe
 	if isVideoExt(ext) || ext == ".mov" {
 		return a.extractVideoMetadata(path, meta)
 	}
 
-	// 2. Probeer goexif voor foto's
 	f, err := os.Open(path)
 	if err == nil {
 		x, errDecode := exif.Decode(f)
@@ -340,22 +471,15 @@ func (a *App) extractMetadata(path string, origExt string) (MediaMetadataJSON, t
 		}
 	}
 
-	// 3. Fallback voor foto's waar goexif de Apple-header mist: gebruik ffprobe
-	if metaProbe, tm, ok := a.extractVideoMetadata(path, meta); ok {
-		return metaProbe, tm, true
-	}
-
-	// 4. Als EXIF ontbreekt of onleesbaar is
 	return a.fallbackMetadata(path, meta)
 }
+
 func (a *App) fallbackMetadata(path string, meta MediaMetadataJSON) (MediaMetadataJSON, time.Time, bool) {
-	// 1. Probeer datum uit bestandsnaam te halen
 	if fileDate, ok := extractDateFromFileName(filepath.Base(path)); ok {
 		meta.Opnamedatum = fileDate.Format("2006-01-02T15:04:05.0000000Z")
 		return meta, fileDate, true
 	}
 
-	// 2. Als de bestandsnaam geen datum bevat, pak de bestandseigenschap op schijf (ModTime)
 	fi, err := os.Stat(path)
 	if err == nil {
 		modTime := fi.ModTime()
@@ -363,11 +487,11 @@ func (a *App) fallbackMetadata(path string, meta MediaMetadataJSON) (MediaMetada
 		return meta, modTime, false
 	}
 
-	// 3. Uiterste fallback
 	now := time.Now()
 	meta.Opnamedatum = now.Format("2006-01-02T15:04:05.0000000Z")
 	return meta, now, false
 }
+
 func moveFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -401,10 +525,6 @@ func convertHeicToJpg(src, dst string) error {
 		return fmt.Errorf("heif-dec conversie fout: %v - %s", err, string(output))
 	}
 
-	if _, err := os.Stat(dst); os.IsNotExist(err) {
-		return fmt.Errorf("heif-dec voltooid, maar geconverteerd bestand %s is niet aangemaakt", dst)
-	}
-
 	return nil
 }
 
@@ -413,26 +533,16 @@ func getToolPath(toolName string) string {
 	if err != nil {
 		return filepath.Join("portable_magick", toolName)
 	}
-
-	appDir := filepath.Dir(exePath)
-	return filepath.Join(appDir, "portable_magick", toolName)
+	return filepath.Join(filepath.Dir(exePath), "portable_magick", toolName)
 }
 
-// extractVideoMetadata leest metadata uit MOV/MP4 en foto's via ffprobe (ondersteunt Apple QuickTime tags)
 func (a *App) extractVideoMetadata(path string, meta MediaMetadataJSON) (MediaMetadataJSON, time.Time, bool) {
 	ffprobePath := getToolPath("ffprobe.exe")
 	if _, err := os.Stat(ffprobePath); os.IsNotExist(err) {
 		return a.fallbackMetadata(path, meta)
 	}
 
-	cmd := exec.Command(ffprobePath,
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_format",
-		"-show_streams",
-		path,
-	)
-
+	cmd := exec.Command(ffprobePath, "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", path)
 	output, err := cmd.Output()
 	if err != nil {
 		return a.fallbackMetadata(path, meta)
@@ -442,64 +552,18 @@ func (a *App) extractVideoMetadata(path string, meta MediaMetadataJSON) (MediaMe
 		Format struct {
 			Tags map[string]interface{} `json:"tags"`
 		} `json:"format"`
-		Streams []struct {
-			Tags map[string]interface{} `json:"tags"`
-		} `json:"streams"`
 	}
 
-	if err := json.Unmarshal(output, &rawData); err != nil {
-		return a.fallbackMetadata(path, meta)
-	}
-
-	var candidates []string
-
-	collectTagValues := func(tags map[string]interface{}) {
-		for key, val := range tags {
-			k := strings.ToLower(key)
-			if strVal, ok := val.(string); ok && strVal != "" {
-				if strings.Contains(k, "date") || strings.Contains(k, "creation") || strings.Contains(k, "time") {
-					candidates = append(candidates, strVal)
+	if err := json.Unmarshal(output, &rawData); err == nil && rawData.Format.Tags != nil {
+		for k, val := range rawData.Format.Tags {
+			if strVal, ok := val.(string); ok {
+				lk := strings.ToLower(k)
+				if strings.Contains(lk, "creation_time") || strings.Contains(lk, "date") {
+					if t, err := time.Parse(time.RFC3339, strVal); err == nil {
+						meta.Opnamedatum = t.Format("2006-01-02T15:04:05.0000000Z")
+						return meta, t, true
+					}
 				}
-				if strings.Contains(k, "model") {
-					meta.Device = strVal
-				}
-				if strings.Contains(k, "location") {
-					meta.Latitude = strVal
-				}
-			}
-		}
-	}
-
-	if rawData.Format.Tags != nil {
-		collectTagValues(rawData.Format.Tags)
-	}
-
-	for _, stream := range rawData.Streams {
-		if stream.Tags != nil {
-			collectTagValues(stream.Tags)
-		}
-	}
-
-	layouts := []string{
-		time.RFC3339,
-		"2006-01-02T15:04:05Z",
-		"2006-01-02T15:04:05-0700",
-		"2006-01-02T15:04:05+0700",
-		"2006-01-02T15:04:05+07:00",
-		"2006-01-02T15:04:05-07:00",
-		"2006-01-02T15:04:05.000000Z",
-		"2006-01-02T15:04:05.000Z",
-		"2006:01:02 15:04:05",
-		"2006-01-02 15:04:05",
-	}
-
-	for _, dateStr := range candidates {
-		cleanDateStr := strings.TrimSpace(dateStr)
-
-		for _, layout := range layouts {
-			if t, err := time.Parse(layout, cleanDateStr); err == nil {
-				meta.Opnamedatum = t.Format("2006-01-02T15:04:05.0000000Z")
-				return meta, t, true
 			}
 		}
 	}

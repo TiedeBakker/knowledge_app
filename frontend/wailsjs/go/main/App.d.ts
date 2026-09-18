@@ -4,13 +4,15 @@ import {main} from '../models';
 
 export function DeleteRelationValue(arg1:string):Promise<void>;
 
-export function ExecuteMediaImport(arg1:string,arg2:Array<main.MediaImportItem>):Promise<void>;
+export function ExecuteMediaImport(arg1:string,arg2:string,arg3:string,arg4:Array<main.MediaImportItem>):Promise<void>;
 
 export function GetAllObjectsSimple():Promise<Array<main.ObjectEntity>>;
 
 export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;
 
 export function GetGraphNetwork(arg1:boolean,arg2:number):Promise<main.GraphData>;
+
+export function GetObjectsForSelect(arg1:string):Promise<Array<main.ObjectSelectItem>>;
 
 export function GetParametersForTarget(arg1:string):Promise<Array<main.ParameterValueEntity>>;
 
@@ -19,6 +21,8 @@ export function GetRelationsForTarget(arg1:string):Promise<Array<main.RelationVa
 export function GetTreeForNode(arg1:string,arg2:number,arg3:number):Promise<main.TreeNodeData>;
 
 export function OpenFile(arg1:string):Promise<void>;
+
+export function ReindexOutgoingRelations(arg1:string):Promise<number>;
 
 export function SaveParameterValue(arg1:main.ParameterValueEntity):Promise<void>;
 

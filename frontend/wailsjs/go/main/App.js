@@ -6,8 +6,8 @@ export function DeleteRelationValue(arg1) {
   return window['go']['main']['App']['DeleteRelationValue'](arg1);
 }
 
-export function ExecuteMediaImport(arg1, arg2) {
-  return window['go']['main']['App']['ExecuteMediaImport'](arg1, arg2);
+export function ExecuteMediaImport(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ExecuteMediaImport'](arg1, arg2, arg3, arg4);
 }
 
 export function GetAllObjectsSimple() {
@@ -20,6 +20,10 @@ export function GetAllRelationsTypes() {
 
 export function GetGraphNetwork(arg1, arg2) {
   return window['go']['main']['App']['GetGraphNetwork'](arg1, arg2);
+}
+
+export function GetObjectsForSelect(arg1) {
+  return window['go']['main']['App']['GetObjectsForSelect'](arg1);
 }
 
 export function GetParametersForTarget(arg1) {
@@ -36,6 +40,10 @@ export function GetTreeForNode(arg1, arg2, arg3) {
 
 export function OpenFile(arg1) {
   return window['go']['main']['App']['OpenFile'](arg1);
+}
+
+export function ReindexOutgoingRelations(arg1) {
+  return window['go']['main']['App']['ReindexOutgoingRelations'](arg1);
 }
 
 export function SaveParameterValue(arg1) {

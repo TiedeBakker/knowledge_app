@@ -730,3 +730,77 @@ func (a *App) OpenFile(filePath string) error {
 	}
 	return nil
 }
+// CreateNewObject struct/payload voor de Wails binding
+type CreateObjectInput struct {
+	Label        string `json:"label"`
+	ObjectTypeID string `json:"objectTypeId"`
+}
+
+// CreateNewObject maakt direct een object én de verplichte type-relatie aan in SQLite,
+// exact zoals dat in media_import.go gebeurt.
+func (a *App) CreateNewObject(label string, objectTypeID string) (string, error) {
+	newUUID := NewUUIDv7()
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+
+	// 1. Invoegen in 'objects'
+	queryObj := `
+		INSERT INTO objects (id, label, valid_from, updated_at)
+		VALUES (?, ?, ?, ?)
+	`
+	_, err := a.db.Exec(queryObj, newUUID, label, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij invoegen object: %w", err)
+	}
+
+	// 2. Koppeling naar ObjectType (Relation ID: 019fcd1d-c633-76bc-ac68-5ecf3a9ac76f / RelIDMediaKoppeling)
+	// Let op de exacte verdeling: source = objectTypeID, target = newUUID (conform insertMediaRecord)
+	relTypeUUID := "019fcd1d-c633-76bc-ac68-5ecf3a9ac76f"
+	typeRelUUID := NewUUIDv7()
+
+	
+	queryTypeRel := `
+		INSERT INTO relation_values (id, relation_id, source_id, target_id, valid_from, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+	_, err = a.db.Exec(queryTypeRel, typeRelUUID, relTypeUUID, objectTypeID, newUUID, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij koppelen van object-type relatie: %w", err)
+	}
+
+	return newUUID, nil
+}
+
+type ObjectTypeOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// GetObjectTypes haalt uitsluitend de geldige objecttypen op via de stam-node
+func (a *App) GetObjectTypes() ([]ObjectTypeOption, error) {
+	query := `
+		SELECT oj.id, oj.label 
+		FROM objects 
+		JOIN relation_values ON objects.id = relation_values.source_id 
+		JOIN objects oj ON relation_values.target_id = oj.id 
+		WHERE objects.id = '019fcd1d-c633-76bc-ac68-5ecf3a9ac76f'
+		ORDER BY oj.label ASC
+	`
+
+	rows, err := a.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("fout bij ophalen objecttypen: %w", err)
+	}
+	defer rows.Close()
+
+	var types []ObjectTypeOption
+	for rows.Next() {
+		var item ObjectTypeOption
+		if err := rows.Scan(&item.ID, &item.Label); err != nil {
+			return nil, err
+		}
+		types = append(types, item)
+	}
+
+	return types, nil
+}

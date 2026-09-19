@@ -208,6 +208,20 @@ export namespace main {
 	        this.label = source["label"];
 	    }
 	}
+	export class ObjectTypeOption {
+	    id: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ObjectTypeOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	    }
+	}
 	export class ParameterDefinition {
 	    id: string;
 	    label: string;

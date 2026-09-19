@@ -1,3 +1,4 @@
+// knowledge-app/frontend/src/modules/tree-viewer/GraphicalTreeView.tsx
 import React, { useState } from 'react';
 import { main } from '../../../wailsjs/go/models';
 import { getInboundRelationLabel, getOutboundRelationLabel } from '../../utils/relationUtils';

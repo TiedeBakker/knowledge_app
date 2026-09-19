@@ -3,7 +3,6 @@ import * as AppBindings from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import { NodeSearchSelect } from './NodeSearchSelect';
 
-
 interface RelationEditorProps {
   isOpen: boolean;
   relation: main.RelationValueEntity | null;
@@ -13,32 +12,22 @@ interface RelationEditorProps {
   onSaved: () => void;
 }
 
-/**
- * Herordent en hernummert een reeks uitgaande relaties.
- * Voorbeeld: [0, 0, 0, 2, 4, 4, 0, 5] -> [2, 4, 4, 5, 0, 0, 0, 0] -> [1, 2, 3, 4, 5, 6, 7, 8]
- */
-export const resequenceOutgoingRelations = (relations: main.RelationValueEntity[]): main.RelationValueEntity[] => {
-  const sorted = [...relations].sort((a, b) => {
-    const orderA = a.volgorde || 0;
-    const orderB = b.volgorde || 0;
+interface ObjectTypeOption {
+  id: string;
+  label: string;
+}
 
-    if (orderA > 0 && orderB > 0) {
-      return orderA - orderB;
-    }
-    if (orderA > 0 && orderB <= 0) {
-      return -1;
-    }
-    if (orderA <= 0 && orderB > 0) {
-      return 1;
-    }
-    return 0;
-  });
+// const generateUUIDv7 = (): string => {
+//   const now = Date.now();
+//   const hexNow = now.toString(16).padStart(12, '0');
+//   const rand = Array.from(crypto.getRandomValues(new Uint8Array(10)))
+//     .map((b) => b.toString(16).padStart(2, '0'))
+//     .join('');
 
-  return sorted.map((rel, index) => ({
-    ...rel,
-    volgorde: index + 1,
-  }));
-};
+//   return `${hexNow.slice(0, 8)}-${hexNow.slice(8, 12)}-7${rand.slice(1, 4)}-${(
+//     (parseInt(rand.slice(4, 6), 16) & 0x3f) | 0x80
+//   ).toString(16).padStart(2, '0')}${rand.slice(6, 8)}-${rand.slice(8, 20)}`;
+// };
 
 export const RelationEditorModal: React.FC<RelationEditorProps> = ({
   isOpen,
@@ -55,7 +44,11 @@ export const RelationEditorModal: React.FC<RelationEditorProps> = ({
   const [sourceNode, setSourceNode] = useState<main.ObjectEntity | null>(null);
   const [targetNode, setTargetNode] = useState<main.ObjectEntity | null>(null);
 
-  // Helper om een node op te halen
+  const [targetMode, setTargetMode] = useState<'EXISTING' | 'NEW'>('EXISTING');
+  const [newObjectLabel, setNewObjectLabel] = useState<string>('');
+  const [selectedObjectTypeID, setSelectedObjectTypeID] = useState<string>('');
+  const [objectTypes, setObjectTypes] = useState<ObjectTypeOption[]>([]);
+
   const resolveNode = async (id: string): Promise<main.ObjectEntity | null> => {
     if (!id) return null;
     try {
@@ -67,59 +60,23 @@ export const RelationEditorModal: React.FC<RelationEditorProps> = ({
     } catch (e) {
       console.error('Fout bij ophalen node details:', e);
     }
-    return new main.ObjectEntity({ id, label: id });
+    // Geef een fallback met herkenbare tekst i.p.v. alleen UUID als label
+    return new main.ObjectEntity({ id, label: `Object (${id.slice(0, 8)}...)` });
   };
 
-  // Haalt bestaande relaties op via de beschikbare Wails backend methodes
-  const fetchRelationsForNode = async (nodeId: string): Promise<main.RelationValueEntity[]> => {
-    const bindings = AppBindings as Record<string, any>;
-
+  const fetchObjectTypes = async () => {
     try {
-      if (typeof bindings.GetRelationsForSource === 'function') {
-        return await bindings.GetRelationsForSource(nodeId);
-      }
-      if (typeof bindings.GetRelationsForTarget === 'function') {
-        return await bindings.GetRelationsForTarget(nodeId);
-      }
-      if (typeof bindings.GetRelations === 'function') {
-        return await bindings.GetRelations(nodeId);
-      }
-      if (typeof bindings.GetRelationsByObjectId === 'function') {
-        return await bindings.GetRelationsByObjectId(nodeId);
+      const bindings = AppBindings as Record<string, any>;
+      if (typeof bindings.GetObjectTypes === 'function') {
+        const types = await bindings.GetObjectTypes();
+        setObjectTypes(types || []);
+      } else {
+        console.error('[ERROR] AppBindings.GetObjectTypes is niet beschikbaar!');
       }
     } catch (e) {
-      console.error('Fout bij ophalen relaties via backend:', e);
-    }
-    return [];
-  };
-
-  // Bepaal het eerstvolgende volgordenummer voor uitgaande relaties van de geselecteerde source
-  const calculateNextSequence = async (sourceId: string): Promise<number> => {
-    if (!sourceId) return 1;
-    try {
-      const existingRelations = await fetchRelationsForNode(sourceId);
-
-      // Filter uitsluitend de uitgaande relaties (waar het geselecteerde object de source is)
-      const outgoing = (existingRelations || []).filter((r) => r.sourceId === sourceId);
-
-      if (outgoing.length === 0) return 1;
-
-      // Hernummer de huidige lijst volgens de logica (positieve waarden eerst, nullen achteraan)
-      const resequenced = resequenceOutgoingRelations(outgoing);
-
-      // Werk database bij indien er correcties plaatsvonden
-      const needsUpdate = outgoing.some((orig, idx) => orig.volgorde !== resequenced[idx].volgorde);
-      if (needsUpdate && typeof AppBindings.SaveRelationValue === 'function') {
-        await Promise.all(resequenced.map((rel) => AppBindings.SaveRelationValue(rel)));
-      }
-
-      return resequenced.length + 1;
-    } catch (e) {
-      console.error('Fout bij hernummeren volgorde op source:', e);
-      return 1;
+      console.error('Fout bij ophalen objecttypen:', e);
     }
   };
-
   useEffect(() => {
     if (!isOpen) return;
 
@@ -129,278 +86,179 @@ export const RelationEditorModal: React.FC<RelationEditorProps> = ({
       });
     }
 
+    fetchObjectTypes();
+
     const initModal = async () => {
+      setTargetMode('EXISTING');
+      setNewObjectLabel('');
+      setSelectedObjectTypeID('');
+
       if (relation) {
         setFormData({ ...relation });
-
-        if (relation.sourceId) {
-          const src = await resolveNode(relation.sourceId);
-          setSourceNode(src);
-        } else {
-          setSourceNode(null);
-        }
-
-        if (relation.targetId) {
-          const tgt = await resolveNode(relation.targetId);
-          setTargetNode(tgt);
-        } else {
-          setTargetNode(null);
-        }
+        if (relation.sourceId) setSourceNode(await resolveNode(relation.sourceId));
+        if (relation.targetId) setTargetNode(await resolveNode(relation.targetId));
       } else {
         const activeSourceId = fixedSourceId || '';
         const activeTargetId = fixedTargetId || '';
-
-        const nextOrder = activeSourceId ? await calculateNextSequence(activeSourceId) : 1;
 
         setFormData({
           id: '',
           relationId: '',
           sourceId: activeSourceId,
           targetId: activeTargetId,
-          volgorde: nextOrder,
+          volgorde: 1,
           isConfidential: false,
           validFrom: new Date().toISOString().substring(0, 10),
         });
 
-        if (activeSourceId) {
-          const src = await resolveNode(activeSourceId);
-          setSourceNode(src);
-        } else {
-          setSourceNode(null);
-        }
-
-        if (activeTargetId) {
-          const tgt = await resolveNode(activeTargetId);
-          setTargetNode(tgt);
-        } else {
-          setTargetNode(null);
-        }
+        if (activeSourceId) setSourceNode(await resolveNode(activeSourceId));
+        if (activeTargetId) setTargetNode(await resolveNode(activeTargetId));
       }
     };
 
     initModal();
   }, [isOpen, relation, fixedSourceId, fixedTargetId]);
 
-  const handleTargetChange = async (node: main.ObjectEntity | null) => {
-    setTargetNode(node);
-    const newTargetId = node?.id || '';
-
-    let newOrder = formData.volgorde;
-    if (!formData.id && formData.sourceId) {
-      newOrder = await calculateNextSequence(formData.sourceId);
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      targetId: newTargetId,
-      volgorde: newOrder,
-    }));
-  };
-
-  const handleSourceChange = async (node: main.ObjectEntity | null) => {
-    setSourceNode(node);
-    const newSourceId = node?.id || '';
-
-    let newOrder = formData.volgorde;
-    if (!formData.id && newSourceId) {
-      newOrder = await calculateNextSequence(newSourceId);
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      sourceId: newSourceId,
-      volgorde: newOrder,
-    }));
-  };
-
-  if (!isOpen) return null;
-
   const handleSave = async () => {
     setLoading(true);
     try {
-      if (typeof AppBindings.SaveRelationValue === 'function') {
-        await AppBindings.SaveRelationValue(formData as main.RelationValueEntity);
+      const bindings = AppBindings as Record<string, any>;
+      let finalSourceId = formData.sourceId || '';
+      let finalTargetId = formData.targetId || '';
+
+      // 1. ALS WE EEN NIEUW OBJECT AANMAKEN
+      if (targetMode === 'NEW') {
+        // Roep de nieuwe, direct werkende Go-functie aan
+        if (typeof bindings.CreateNewObject !== 'function') {
+          alert('Fout: Go functie CreateNewObject is nog niet geëxporteerd/beschikbaar.');
+          setLoading(false);
+          return;
+        }
+
+        // Go maakt het object + de type-relatie exact zoals in media_import.go
+        const createdObjId = await bindings.CreateNewObject(
+          newObjectLabel.trim(),
+          selectedObjectTypeID
+        );
+
+        console.log('Object succesvol in DB aangemaakt met ID:', createdObjId);
+
+        // Koppel het zojuist aangemaakte object aan de hoofdrelatie (IR of UR)
+        if (fixedSourceId) {
+          // Uitgaand: FixedSource -> NieuwObject
+          finalSourceId = fixedSourceId;
+          finalTargetId = createdObjId;
+        } else if (fixedTargetId) {
+          // Ingaand: NieuwObject -> FixedTarget
+          finalSourceId = createdObjId;
+          finalTargetId = fixedTargetId;
+        }
       }
+
+      // 2. OPSLAAN HOOFDRELATIE (tussen het geselecteerde/nieuwe object en de huidige node)
+      if (typeof bindings.SaveRelationValue === 'function') {
+        const relationToSave = {
+          ...formData,
+          sourceId: finalSourceId,
+          targetId: finalTargetId,
+        };
+
+        await bindings.SaveRelationValue(relationToSave);
+      }
+      // 1. Signaleer de applicatie dat er relaties zijn gewijzigd
+    window.dispatchEvent(
+      new CustomEvent('relations-updated', {
+        detail: {
+          sourceId: finalSourceId,
+          targetId: finalTargetId,
+        },
+      })
+    );
+
       onSaved();
       onClose();
     } catch (err) {
-      console.error('Fout bij opslaan relatie:', err);
+      console.error('Fout bij opslaan:', err);
+      alert('Opslaan mislukt: ' + err);
     } finally {
       setLoading(false);
     }
   };
+  const isEditingExisting = Boolean(formData.id);
+  const canSave =
+    !loading &&
+    Boolean(formData.relationId) &&
+    (targetMode === 'EXISTING'
+      ? Boolean(formData.sourceId) && Boolean(formData.targetId)
+      : Boolean(newObjectLabel.trim()) && Boolean(selectedObjectTypeID));
 
-  const handleDelete = async () => {
-    if (!formData.id || !window.confirm('Weet je zeker dat je deze relatie wilt verwijderen?')) return;
-    setLoading(true);
-    try {
-      if (typeof AppBindings.DeleteRelationValue === 'function') {
-        await AppBindings.DeleteRelationValue(formData.id);
-      }
-      onSaved();
-      onClose();
-    } catch (err) {
-      console.error('Fout bij verwijderen relatie:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const isIncomingOnly = Boolean(fixedTargetId && !fixedSourceId);
+  if (!isOpen) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1100,
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          backgroundColor: '#fff',
-          borderRadius: '8px',
-          width: '500px',
-          padding: '20px',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }} onClick={onClose}>
+      <div style={{ backgroundColor: '#fff', borderRadius: '8px', width: '520px', padding: '20px' }} onClick={(e) => e.stopPropagation()}>
         <h3>{formData.id ? 'Relatie Bewerken' : 'Nieuwe Relatie Toevoegen'}</h3>
 
-        {/* RELATIE TYPE DROPDOWN */}
+        {/* RELATIETYPE */}
         <div style={{ marginBottom: '12px' }}>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
-            Relatietype:
-          </label>
-          <select
-            style={{ width: '100%', padding: '6px' }}
-            value={formData.relationId || ''}
-            onChange={(e) => setFormData({ ...formData, relationId: e.target.value })}
-          >
+          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold' }}>Relatietype:</label>
+          <select style={{ width: '100%', padding: '6px' }} value={formData.relationId || ''} onChange={(e) => setFormData({ ...formData, relationId: e.target.value })}>
             <option value="">-- Selecteer Relatietype --</option>
             {relationTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.label}
-              </option>
+              <option key={t.id} value={t.id}>{t.label}</option>
             ))}
           </select>
         </div>
 
-        {/* BRON OBJECT (SOURCE) */}
-        <div style={{ marginBottom: '12px' }}>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
-            Van (Source):
-          </label>
-          <NodeSearchSelect
-            value={sourceNode}
-            isDisabled={Boolean(fixedSourceId)}
-            excludeNodeId={targetNode?.id}
-            placeholder="Zoek en kies bron-node..."
-            onSelectNode={handleSourceChange}
-          />
-        </div>
-
-        {/* DOEL OBJECT (TARGET) */}
-        <div style={{ marginBottom: '12px' }}>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
-            Naar (Target):
-          </label>
-          <NodeSearchSelect
-            value={targetNode}
-            isDisabled={Boolean(fixedTargetId)}
-            excludeNodeId={sourceNode?.id}
-            placeholder="Zoek en kies doel-node..."
-            onSelectNode={handleTargetChange}
-          />
-        </div>
-
-        {/* VOLGORDE & VERTROUWELIJK */}
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
-              Volgorde op source:
+        {/* MODUS SELECTIE */}
+        {!isEditingExisting && (
+          <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', background: '#f5f5f5', padding: '8px', borderRadius: '4px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>
+              <input type="radio" name="targetMode" value="EXISTING" checked={targetMode === 'EXISTING'} onChange={() => setTargetMode('EXISTING')} /> Bestaand Object Koppelen
             </label>
-            <input
-              type="number"
-              style={{
-                width: '100%',
-                padding: '6px',
-                backgroundColor: isIncomingOnly ? '#f0f0f0' : '#fff',
-              }}
-              disabled={isIncomingOnly}
-              value={formData.volgorde || 1}
-              onChange={(e) => setFormData({ ...formData, volgorde: parseInt(e.target.value, 10) || 1 })}
-            />
-            {isIncomingOnly && (
-              <span style={{ fontSize: '0.7rem', color: '#666' }}>
-                Wordt automatisch achteraan geplaatst bij de bron-node.
-              </span>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', marginTop: '16px' }}>
-            <input
-              type="checkbox"
-              id="relConfidential"
-              checked={Boolean(formData.isConfidential)}
-              onChange={(e) => setFormData({ ...formData, isConfidential: e.target.checked })}
-            />
-            <label htmlFor="relConfidential" style={{ marginLeft: '6px', fontSize: '0.85rem' }}>
-              Vertrouwelijk
+            <label style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>
+              <input type="radio" name="targetMode" value="NEW" checked={targetMode === 'NEW'} onChange={() => setTargetMode('NEW')} /> Nieuw Object Aanmaken
             </label>
           </div>
-        </div>
+        )}
 
-        {/* FOOTER KNOPPEN */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-          {formData.id ? (
-            <button
-              onClick={handleDelete}
-              disabled={loading}
-              style={{
-                background: '#d32f2f',
-                color: '#fff',
-                border: 'none',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
-              Verwijderen
-            </button>
-          ) : (
-            <div />
-          )}
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={onClose} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-              Annuleren
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={loading || !formData.sourceId || !formData.targetId || !formData.relationId}
-              style={{
-                background: '#007acc',
-                color: '#fff',
-                border: 'none',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                opacity: loading || !formData.sourceId || !formData.targetId || !formData.relationId ? 0.6 : 1,
-              }}
-            >
-              {loading ? 'Opslaan...' : 'Opslaan'}
-            </button>
+        {/* FORMULIER INHOUD */}
+        {targetMode === 'EXISTING' ? (
+          <>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold' }}>Van (Source):</label>
+              <NodeSearchSelect value={sourceNode} isDisabled={Boolean(fixedSourceId)} excludeNodeId={targetNode?.id} onSelectNode={(node) => { setSourceNode(node); setFormData(p => ({ ...p, sourceId: node?.id || '' })); }} />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold' }}>Naar (Target):</label>
+              <NodeSearchSelect value={targetNode} isDisabled={Boolean(fixedTargetId)} excludeNodeId={sourceNode?.id} onSelectNode={(node) => { setTargetNode(node); setFormData(p => ({ ...p, targetId: node?.id || '' })); }} />
+            </div>
+          </>
+        ) : (
+          <div style={{ border: '1px solid #007acc', padding: '12px', borderRadius: '6px', marginBottom: '12px', backgroundColor: '#f0f8ff' }}>
+            <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#007acc' }}>Details Nieuw Object</h4>
+            <div style={{ marginBottom: '10px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold' }}>Label Nieuw Object:</label>
+              <input type="text" style={{ width: '100%', padding: '6px', boxSizing: 'border-box' }} value={newObjectLabel} onChange={(e) => setNewObjectLabel(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold' }}>Objecttype (Verplichte Ingaande Relatie):</label>
+              <select style={{ width: '100%', padding: '6px' }} value={selectedObjectTypeID} onChange={(e) => setSelectedObjectTypeID(e.target.value)}>
+                <option value="">-- Selecteer Objecttype --</option>
+                {objectTypes.map((ot) => (
+                  <option key={ot.id} value={ot.id}>{ot.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
+        )}
+
+        {/* KNOPPEN */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
+          <button onClick={onClose} style={{ padding: '6px 12px' }}>Annuleren</button>
+          <button onClick={handleSave} disabled={!canSave} style={{ background: '#007acc', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', opacity: canSave ? 1 : 0.6 }}>
+            {loading ? 'Opslaan...' : 'Opslaan'}
+          </button>
         </div>
       </div>
     </div>

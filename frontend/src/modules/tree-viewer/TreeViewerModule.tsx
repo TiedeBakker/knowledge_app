@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+// knowledge-app/frontend/src/modules/tree-viewer/TreeViewerModule.tsx
+
+import React, { useState, useEffect, useCallback } from 'react';
 import { NodeSearchSelect } from '../../components/NodeSearchSelect';
 import { GraphicalTreeView } from './GraphicalTreeView';
 import { TextualTreeView } from './TextualTreeView';
@@ -25,18 +27,45 @@ export const TreeViewerModule: React.FC = () => {
   const [selectedEditorNode, setSelectedEditorNode] = useState<main.ObjectEntity | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  // Data ophalen zodra startNode, inLevels of outLevels verandert
-  useEffect(() => {
-    if (startNode) {
-      setLoading(true);
-      GetTreeForNode(startNode.id, inLevels, outLevels)
-        .then((data) => setTreeData(data))
-        .catch((err) => console.error("Fout bij ophalen boomdata:", err))
-        .finally(() => setLoading(false));
-    } else {
+  // 1. AFZONDERLIJKE FETCH FUNCTIE (Met useCallback om re-renders te voorkomen)
+  const fetchTreeData = useCallback(async () => {
+    if (!startNode) {
       setTreeData(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = await GetTreeForNode(startNode.id, inLevels, outLevels);
+      setTreeData(data);
+    } catch (err) {
+      console.error("Fout bij ophalen boomdata:", err);
+    } finally {
+      setLoading(false);
     }
   }, [startNode, inLevels, outLevels]);
+
+  // 2. HERLAAD DATA WANNEER STARTNODE OF NIVEAUS VERANDEREN
+  useEffect(() => {
+    fetchTreeData();
+  }, [fetchTreeData]);
+
+  // 3. EVENT LISTENER: HIER LUISTEREN WE NAAR WIJZIGINGEN IN RELATIES/NODES
+  useEffect(() => {
+    const handleRelationsUpdated = (event: Event) => {
+      console.log('[TreeViewerModule] Relaties/nodes gewijzigd, verversen...', (event as CustomEvent)?.detail);
+      fetchTreeData();
+    };
+
+    // Luister naar custom browser events die vanuit modals worden afgevuurd
+    window.addEventListener('relations-updated', handleRelationsUpdated);
+    window.addEventListener('app-node-updated', handleRelationsUpdated);
+
+    return () => {
+      window.removeEventListener('relations-updated', handleRelationsUpdated);
+      window.removeEventListener('app-node-updated', handleRelationsUpdated);
+    };
+  }, [fetchTreeData]);
 
   const handleOpenEditor = (node: main.ObjectEntity) => {
     setSelectedEditorNode(node);
@@ -142,12 +171,8 @@ export const TreeViewerModule: React.FC = () => {
             // 2. Update ook de geopende editor-node referentie
             setSelectedEditorNode(updatedNode);
 
-            // 3. Ververs de achterliggende grafische boomweergave op de achtergrond
-            // (Het modal blijft nu gewoon OPEN staan!)
-            if (startNode) {
-              const refreshedData = await GetTreeForNode(startNode.id, inLevels, outLevels);
-              setTreeData(refreshedData);
-            }
+            // 3. Ververs de achterliggende grafische boomweergave direct
+            fetchTreeData();
           } catch (err) {
             console.error('Fout bij opslaan in database:', err);
           }

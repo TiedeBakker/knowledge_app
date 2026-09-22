@@ -8,6 +8,8 @@ export function DeleteRelationValue(arg1:string):Promise<void>;
 
 export function ExecuteMediaImport(arg1:string,arg2:string,arg3:string,arg4:Array<main.MediaImportItem>):Promise<void>;
 
+export function FetchReportTree(arg1:string,arg2:number,arg3:string):Promise<main.ReportTreeNode>;
+
 export function GetAllObjectsSimple():Promise<Array<main.ObjectEntity>>;
 
 export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;

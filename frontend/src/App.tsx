@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Sidebar, ModuleType } from './components/layout/Sidebar';
 import { TreeViewerModule } from './modules/tree-viewer/TreeViewerModule';
-import { ReportingModule } from './modules/reporting/ReportingModule';
+import { ReportModule } from './modules/reporting/ReportModule';
 import { MediaImportModal } from './modules/import/MediaImportModal';
 import './App.css';
 
@@ -13,7 +13,7 @@ import './App.css';
 //       <Sidebar activeModule={activeModule} onSelectModule={setActiveModule} />
 //       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', background: '#ffffff' }}>
 //         {activeModule === 'tree-viewer' && <TreeViewerModule />}
-//         {activeModule === 'reporting' && <ReportingModule />}
+//         {activeModule === 'reporting' && <ReportModule />}
 //       </main>
 //     </div>
 //   );
@@ -33,7 +33,7 @@ export const App: React.FC = () => {
       
       <main className="main-content" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
          {activeModule === 'tree-viewer' && <TreeViewerModule />}
-        {activeModule === 'reporting' && <ReportingModule />}
+        {activeModule === 'reporting' && <ReportModule />}
         
         {/* Render de Media Import Modal wanneer 'media-import' actief is */}
         <MediaImportModal

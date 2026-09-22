@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import './NodeEditorModal.css';
-import { GetParametersForTarget, GetRelationsForTarget } from '../../wailsjs/go/main/App';
+import { GetParametersForTarget, GetRelationsForTarget, SaveRelationValue } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import { RelationEditorModal } from './RelationEditorModal';
-import { ParameterValueEditorModal } from './ParameterValueEditorModal'; // <-- 1. IMPORT TOEVOEGEN
+import { ParameterValueEditorModal } from './ParameterValueEditorModal';
 import { getInboundRelationLabel, getOutboundRelationLabel } from '../utils/relationUtils';
 import { isoToLocalDatetime, localDatetimeToIso, formatDisplayDateTime } from '../utils/dateUtils';
 
@@ -107,14 +107,72 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
   const hasAnyAttributeChanged = isLabelModified || isConfidentialModified || isValidFromModified || isValidToModified || isDeletedAtModified;
 
-  // Splits relaties in Inkomend en Uitgaand
+  // Splits relaties in Inkomend en Uitgaand (gesorteerd op volgorde)
   const inboundRelations = relations.filter((r) => r.targetId === formData.id);
-  const outboundRelations = relations.filter((r) => r.sourceId === formData.id);
+  const outboundRelations = relations
+    .filter((r) => r.sourceId === formData.id)
+    .sort((a, b) => (a.volgorde || 0) - (b.volgorde || 0));
 
   const refreshRelations = () => {
     if (formData?.id) {
       GetRelationsForTarget(formData.id).then((rels) => setRelations(rels || []));
     }
+  };
+
+  // LOGICA VOOR RE-ORDEREN VAN UITGAANDE RELATIES
+  const reorderAndSaveOutboundRelations = async (newList: main.RelationValueEntity[]) => {
+    // Zorg dat volgnummers 1-based, aaneengesloten en oplopend zijn
+    const reorderedList = newList.map((rel, index) => ({
+      ...rel,
+      volgorde: index + 1
+    }));
+
+    // Update de lokale state voor directe visuele feedback
+    setRelations((prev) => {
+      const otherRelations = prev.filter((r) => r.sourceId !== formData.id);
+      return [...otherRelations, ...reorderedList];
+    });
+
+    // Schrijf naar de SQLite database via SaveRelationValue
+    try {
+      await Promise.all(
+        reorderedList.map((rel) => SaveRelationValue(rel))
+      );
+      window.dispatchEvent(new CustomEvent('relations-updated'));
+    } catch (err) {
+      console.error("Fout bij opslaan van relatievolgorde:", err);
+      refreshRelations(); // Rollback naar DB-stand bij fout
+    }
+  };
+
+  // Verschuif omhoog (-1) of omlaag (+1)
+  const handleMoveOutbound = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= outboundRelations.length) return;
+
+    const updatedList = [...outboundRelations];
+    const [movedItem] = updatedList.splice(index, 1);
+    updatedList.splice(targetIndex, 0, movedItem);
+
+    reorderAndSaveOutboundRelations(updatedList);
+  };
+
+  // Direct volgnummer aanpassen via inputveld
+  const handleDirectOrderChange = (index: number, newOrderVal: number) => {
+    if (isNaN(newOrderVal)) return;
+
+    // Converteer 1-based getal naar 0-based index
+    let targetIndex = newOrderVal - 1;
+    if (targetIndex < 0) targetIndex = 0;
+    if (targetIndex >= outboundRelations.length) targetIndex = outboundRelations.length - 1;
+
+    if (targetIndex === index) return;
+
+    const updatedList = [...outboundRelations];
+    const [movedItem] = updatedList.splice(index, 1);
+    updatedList.splice(targetIndex, 0, movedItem);
+
+    reorderAndSaveOutboundRelations(updatedList);
   };
 
   // Handlers voor Parameter-modal
@@ -142,7 +200,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
     setIsParamModalOpen(true);
   };
 
-  // Met expliciete typering 'main.ParameterValueEntity' voor TypeScript
   const properties = parameters.filter((p: main.ParameterValueEntity) => !p.validTo || p.validFrom !== p.validTo);
   const measurements = parameters.filter((p: main.ParameterValueEntity) => p.validTo && p.validFrom === p.validTo);
 
@@ -320,22 +377,97 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
           </div>
 
-          {/* KOLOM 3: UITGAAND */}
+          {/* KOLOM 3: UITGAAND MET VOLGORDE-BEDIENING */}
           <div style={{ flex: 1, border: '1px solid #e0e0e0', borderRadius: '6px', padding: '16px', background: '#fafafa' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <h3 style={{ margin: 0, fontSize: '1rem', color: '#c62828' }}>► Uitgaand</h3>
               <button onClick={handleAddOutbound} style={{ padding: '2px 8px', fontSize: '0.75rem', cursor: 'pointer' }}>+ Toevoegen</button>
             </div>
-            {outboundRelations.map((rel) => (
+
+            {outboundRelations.map((rel, index) => (
               <div
                 key={rel.id}
-                onClick={() => handleEditRelation(rel)}
-                style={{ padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px' }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px',
+                  background: '#fff',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  marginBottom: '6px',
+                  gap: '8px'
+                }}
               >
-                <div style={{ fontWeight: 'bold', color: '#007acc' }}>
-                  {getOutboundRelationLabel(rel.relationLabel)} ✏️
+                {/* INHOUD EN EDIT-CLICK */}
+                <div
+                  onClick={() => handleEditRelation(rel)}
+                  style={{ flex: 1, cursor: 'pointer' }}
+                >
+                  <div style={{ fontWeight: 'bold', color: '#007acc' }}>
+                    {getOutboundRelationLabel(rel.relationLabel)} ✏️
+                  </div>
+                  <div style={{ fontSize: '0.8rem' }}>
+                    Naar: <strong>{rel.targetLabel || rel.targetId}</strong>
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.8rem' }}>Naar: <strong>{rel.targetLabel || rel.targetId}</strong></div>
+
+                {/* VOLGORDE CONTROL: VERTICAAL GESTAPELD */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'left', gap: '2px' }}>
+                  <button
+                    disabled={index === 0}
+                    onClick={() => handleMoveOutbound(index, 'up')}
+                    style={{
+                      padding: '0 4px',
+                      cursor: index === 0 ? 'default' : 'pointer',
+                      border: '1px solid #ccc',
+                      borderRadius: '3px',
+                      background: index === 0 ? '#eee' : '#fff',
+                      fontSize: '0.65rem',
+                      lineHeight: '1.2',
+                      width: '32px'
+                    }}
+                    title="Omhoog verplaatsen"
+                  >
+                    ▲
+                  </button>
+
+                  <input
+                    type="number"
+                    value={index + 1}
+                    min={1}
+                    max={outboundRelations.length}
+                    onChange={(e) => handleDirectOrderChange(index, parseInt(e.target.value, 10))}
+                    style={{
+                      width: '32px',
+                      textAlign: 'center',
+                      padding: '1px 0',
+                      border: '1px solid #ccc',
+                      borderRadius: '3px',
+                      fontSize: '0.75rem',
+                      fontWeight: 'bold'
+                    }}
+                    title="Systeemeigen volgnummer (aanpasbaar)"
+                  />
+
+                  <button
+                    disabled={index === outboundRelations.length - 1}
+                    onClick={() => handleMoveOutbound(index, 'down')}
+                    style={{
+                      padding: '0 4px',
+                      cursor: index === outboundRelations.length - 1 ? 'default' : 'pointer',
+                      border: '1px solid #ccc',
+                      borderRadius: '3px',
+                      background: index === outboundRelations.length - 1 ? '#eee' : '#fff',
+                      fontSize: '0.65rem',
+                      lineHeight: '1.2',
+                      width: '32px'
+                    }}
+                    title="Omlaag verplaatsen"
+                  >
+                    ▼
+                  </button>
+                </div>
               </div>
             ))}
           </div>

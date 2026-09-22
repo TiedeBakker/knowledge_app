@@ -1,3 +1,4 @@
+// models.go
 package main
 
 // Object uit tabel 'objects'

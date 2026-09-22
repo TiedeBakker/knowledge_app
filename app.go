@@ -1,3 +1,4 @@
+// knowledge-app/app.go
 package main
 
 import (
@@ -803,4 +804,204 @@ func (a *App) GetObjectTypes() ([]ObjectTypeOption, error) {
 	}
 
 	return types, nil
+}
+
+type ObjectSummary struct {
+	ID             string  `json:"id"`
+	Label          string  `json:"label"`
+	IsConfidential bool    `json:"is_confidential"`
+	ValidFrom      string  `json:"valid_from"`
+	ValidTo        *string `json:"valid_to,omitempty"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+type ParameterSummary struct {
+	ID             string  `json:"id"`
+	ParameterID    string  `json:"parameter_id"`
+	ParameterCode  string  `json:"parameter_code"`
+	ParameterLabel string  `json:"parameter_label"`
+	DataType       string  `json:"data_type"`
+	TargetID       string  `json:"target_id"`
+	TargetType     string  `json:"target_type"`
+	Value          string  `json:"value"`
+	Unit           string  `json:"unit"`
+	IsConfidential bool    `json:"is_confidential"`
+	ValidFrom      string  `json:"valid_from"`
+	ValidTo        *string `json:"valid_to,omitempty"`
+}
+
+type RelationSummary struct {
+	ID             string  `json:"id"`
+	RelationID     string  `json:"relation_id"`
+	RelationLabel  string  `json:"relation_label"`
+	SourceID       string  `json:"source_id"`
+	SourceLabel    string  `json:"source_label"`
+	TargetID       string  `json:"target_id"`
+	TargetLabel    string  `json:"target_label"`
+	Volgorde       int     `json:"volgorde"`
+	IsConfidential bool    `json:"is_confidential"`
+	ValidFrom      string  `json:"valid_from"`
+	ValidTo        *string `json:"valid_to,omitempty"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+type ReportTreeNode struct {
+	Object     ObjectSummary      `json:"object"`
+	Parameters []ParameterSummary `json:"parameters"`
+	Relation   *RelationSummary   `json:"relation,omitempty"`
+	Children   []*ReportTreeNode  `json:"children"`
+}
+type ReportTemplate struct {
+	ID                   string          `json:"id"`
+	Name                 string          `json:"name"`
+	ContentParameterCode string          `json:"contentParameterCode"`
+	HierarchyRules       []HierarchyRule `json:"hierarchyRules"`
+}
+
+type HierarchyRule struct {
+	Level    int `json:"level"`
+	FontSize int `json:"fontSize"`
+}
+
+// Helper mapping functions
+func mapObjectToSummary(o ObjectEntity) ObjectSummary {
+	return ObjectSummary{
+		ID:             o.ID,
+		Label:          o.Label,
+		IsConfidential: o.IsConfidential,
+		ValidFrom:      o.ValidFrom,
+		ValidTo:        o.ValidTo,
+		UpdatedAt:      o.UpdatedAt,
+	}
+}
+
+func mapParameterToSummary(pv ParameterValueEntity) ParameterSummary {
+	unitVal := ""
+	if pv.Unit != nil {
+		unitVal = *pv.Unit
+	}
+
+	return ParameterSummary{
+		ID:             pv.ID,
+		ParameterID:    pv.ParameterID,
+		ParameterCode:  pv.ParameterCode,
+		ParameterLabel: pv.ParameterLabel,
+		DataType:       pv.DataType,
+		TargetID:       pv.TargetID,
+		TargetType:     pv.TargetType,
+		Value:          pv.Value,
+		Unit:           unitVal,
+		IsConfidential: pv.IsConfidential,
+		ValidFrom:      pv.ValidFrom,
+		ValidTo:        pv.ValidTo,
+	}
+}
+func mapRelationToSummary(rv *RelationValueEntity) *RelationSummary {
+	if rv == nil {
+		return nil
+	}
+	return &RelationSummary{
+		ID:             rv.ID,
+		RelationID:     rv.RelationID,
+		RelationLabel:  rv.RelationLabel,
+		SourceID:       rv.SourceID,
+		SourceLabel:    rv.SourceLabel,
+		TargetID:       rv.TargetID,
+		TargetLabel:    rv.TargetLabel,
+		Volgorde:       rv.Volgorde,
+		IsConfidential: rv.IsConfidential,
+		ValidFrom:      rv.ValidFrom,
+		ValidTo:        rv.ValidTo,
+		UpdatedAt:      rv.UpdatedAt,
+	}
+}
+
+// FetchReportTree haalt recursief de boomstructuur op vanuit een startobject
+func (a *App) FetchReportTree(startObjectID string, maxLevels int, contentParamCode string) (*ReportTreeNode, error) {
+	if contentParamCode == "" {
+		contentParamCode = "toelichting"
+	}
+
+	return a.buildReportNodeRecursive(startObjectID, nil, 0, maxLevels, contentParamCode)
+}
+
+func (a *App) buildReportNodeRecursive(objectID string, rel *RelationValueEntity, currentLevel int, maxLevels int, paramCode string) (*ReportTreeNode, error) {
+	// 1. Haal ObjectEntity op
+	var obj ObjectEntity
+	var validTo sql.NullString
+	err := a.db.QueryRow(`
+		SELECT id, label, is_confidential, valid_from, valid_to, updated_at
+		FROM objects 
+		WHERE id = ? AND deleted_at IS NULL`, objectID).Scan(
+		&obj.ID, &obj.Label, &obj.IsConfidential, &obj.ValidFrom, &validTo, &obj.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("object niet gevonden (%s): %w", objectID, err)
+	}
+	if validTo.Valid {
+		obj.ValidTo = &validTo.String
+	}
+
+	// 2. Haal alle parameters van dit object op
+	paramsEntities, _ := a.GetParametersForTarget(objectID)
+
+	// Map parameter entities to summary entities
+	paramSummaries := make([]ParameterSummary, 0, len(paramsEntities))
+	for _, p := range paramsEntities {
+		paramSummaries = append(paramSummaries, mapParameterToSummary(p))
+	}
+
+	treeNode := &ReportTreeNode{
+		Object:     mapObjectToSummary(obj),
+		Relation:   mapRelationToSummary(rel),
+		Parameters: paramSummaries,
+		Children:   []*ReportTreeNode{},
+	}
+
+	// Stop met dieper zoeken als het maximale niveau bereikt is
+	if currentLevel >= maxLevels-1 {
+		return treeNode, nil
+	}
+
+	// 3. Haal uitgaande relaties op (RelationValueEntity) vanuit dit bron-object
+	relQuery := `
+		SELECT 
+			rv.id, rv.relation_id, r.label AS relation_label, rv.source_id, 
+			COALESCE(so.label, '') AS source_label, rv.target_id, COALESCE(to_obj.label, '') AS target_label,
+			rv.volgorde, rv.is_confidential, rv.valid_from, rv.valid_to, rv.updated_at
+		FROM relation_values rv
+		JOIN relations r ON r.id = rv.relation_id
+		LEFT JOIN objects so ON so.id = rv.source_id
+		LEFT JOIN objects to_obj ON to_obj.id = rv.target_id
+		WHERE rv.source_id = ? AND rv.deleted_at IS NULL AND r.deleted_at IS NULL
+		ORDER BY rv.volgorde ASC`
+
+	rows, err := a.db.Query(relQuery, objectID)
+	if err != nil {
+		return treeNode, nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var childRel RelationValueEntity
+		var vTo sql.NullString
+		if err := rows.Scan(
+			&childRel.ID, &childRel.RelationID, &childRel.RelationLabel, &childRel.SourceID,
+			&childRel.SourceLabel, &childRel.TargetID, &childRel.TargetLabel, &childRel.Volgorde,
+			&childRel.IsConfidential, &childRel.ValidFrom, &vTo, &childRel.UpdatedAt,
+		); err != nil {
+			continue
+		}
+		if vTo.Valid {
+			childRel.ValidTo = &vTo.String
+		}
+
+		// Recursieve aanroep voor het onderliggende target-object
+		childNode, err := a.buildReportNodeRecursive(childRel.TargetID, &childRel, currentLevel+1, maxLevels, paramCode)
+		if err == nil && childNode != nil {
+			treeNode.Children = append(treeNode.Children, childNode)
+		}
+	}
+
+	return treeNode, nil
 }

@@ -15,6 +15,9 @@ export const TreeViewerModule: React.FC = () => {
   const [startNode, setStartNode] = useState<main.ObjectEntity | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('graphical');
 
+  // Optie om foto-nodes uit de selector en/of boom te filteren
+  const [hidePhotos, setHidePhotos] = useState<boolean>(true);
+
   // Niveaus (Default: 1 in, 1 uit)
   const [inLevels, setInLevels] = useState<number>(1);
   const [outLevels, setOutLevels] = useState<number>(1);
@@ -76,7 +79,7 @@ export const TreeViewerModule: React.FC = () => {
     setStartNode(node);
   };
 
-  return (
+return (
     <div className="module-container" style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
       <header style={{ marginBottom: '20px' }}>
         <h1 style={{ margin: 0, fontSize: '1.5rem' }}>Tree Viewer & Editor</h1>
@@ -86,9 +89,24 @@ export const TreeViewerModule: React.FC = () => {
       <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-end', marginBottom: '20px', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: '280px' }}>
           <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Start-node:</label>
-          <NodeSearchSelect onSelectNode={(node) => setStartNode(node)} />
+          {/* HIER GEVEN WE excludePhotos MEE */}
+          <NodeSearchSelect 
+            onSelectNode={(node) => setStartNode(node)} 
+            excludePhotos={hidePhotos}
+          />
         </div>
 
+        {/* TOGGLE FOTO'S VERBERGEN */}
+        <div style={{ display: 'flex', alignItems: 'center', height: '38px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+            <input
+              type="checkbox"
+              checked={hidePhotos}
+              onChange={(e) => setHidePhotos(e.target.checked)}
+            />
+            <span>Foto's verbergen</span>
+          </label>
+        </div>
         <div>
           <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Inkomende niveaus:</label>
           <input

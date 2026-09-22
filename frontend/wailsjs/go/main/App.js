@@ -14,6 +14,10 @@ export function ExecuteMediaImport(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ExecuteMediaImport'](arg1, arg2, arg3, arg4);
 }
 
+export function FetchReportTree(arg1, arg2, arg3) {
+  return window['go']['main']['App']['FetchReportTree'](arg1, arg2, arg3);
+}
+
 export function GetAllObjectsSimple() {
   return window['go']['main']['App']['GetAllObjectsSimple']();
 }

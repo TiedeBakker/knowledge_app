@@ -190,19 +190,72 @@ func (a *App) ExecuteMediaImport(mode string, groupName string, targetObjectID s
 		return fmt.Errorf("geen items geselecteerd voor import")
 	}
 
-	a.logToUI("INFO", fmt.Sprintf("Starten van import voor %d bestanden (Modus: %s)...", len(items), mode))
+	a.logToUI("INFO", fmt.Sprintf("Starten van geoptimaliseerde import voor %d bestanden (Modus: %s)...", len(items), mode))
 
 	exePath, _ := os.Executable()
 	baseMediaDir := filepath.Join(filepath.Dir(exePath), "..", "Media")
 
+	// 1. Batch duplicaatcontrole vooraf inladen
+	existingPaths := make(map[string]bool)
+	rows, err := a.db.Query(`
+		SELECT value 
+		FROM parameter_values 
+		WHERE parameter_id = ? AND deleted_at IS NULL`, ParamIDAfbeelding)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var pathVal string
+			if err := rows.Scan(&pathVal); err == nil {
+				existingPaths[pathVal] = true
+			}
+		}
+	}
+
+	// 2. Start ééne overkoepelende Database Transactie
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("fout bij starten transactie: %w", err)
+	}
+	defer tx.Rollback() // Zorgt voor rollback bij eventuele panic/fout
+
+	// 3. Prepared Statements aanmaken binnen de transactie
+	stmtInsertObject, err := tx.Prepare(`INSERT INTO objects (id, label, valid_from, updated_at) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmtInsertObject.Close()
+
+	stmtInsertRel, err := tx.Prepare(`INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, valid_from, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmtInsertRel.Close()
+
+	stmtInsertParam, err := tx.Prepare(`INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, valid_from, updated_at) VALUES (?, ?, ?, 'object', ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmtInsertParam.Close()
+
+	// Relatievolgorde bepalen indien gekoppeld aan object
 	currentMaxOrder := 0
 	if mode == "OBJECT" && targetObjectID != "" {
-		var err error
-		currentMaxOrder, err = a.ReindexOutgoingRelations(targetObjectID)
-		if err != nil {
-			a.logToUI("WARN", fmt.Sprintf("Kon relatievolgorde niet hernummeren: %v", err))
-			currentMaxOrder = 0
+		currentMaxOrder, _ = a.ReindexOutgoingRelations(targetObjectID)
+	}
+
+	// Bepaal of maak Groep-ID indien modus GROUP is
+	var groupID string
+	if mode == "GROUP" && groupName != "" {
+		nowISO := time.Now().UTC().Format(time.RFC3339)
+		err := tx.QueryRow(`SELECT id FROM objects WHERE label = ? AND deleted_at IS NULL`, groupName).Scan(&groupID)
+		if err == sql.ErrNoRows {
+			groupID = uuid.New().String()
+			_, err = stmtInsertObject.Exec(groupID, groupName, nowISO, nowISO)
+			if err != nil {
+				return fmt.Errorf("fout bij aanmaken groep: %w", err)
+			}
 		}
+		currentMaxOrder, _ = a.ReindexOutgoingRelations(groupID)
 	}
 
 	importedCount := 0
@@ -211,24 +264,13 @@ func (a *App) ExecuteMediaImport(mode string, groupName string, targetObjectID s
 	for _, item := range items {
 		cleanRelPath := filepath.ToSlash(item.DestinationPath)
 
-		// 1. Duplicaatcheck in parameter_values
-		var existingMediaID string
-		checkQuery := `
-			SELECT target_id 
-			FROM parameter_values 
-			WHERE parameter_id = ? AND value = ? AND deleted_at IS NULL
-		`
-		err := a.db.QueryRow(checkQuery, ParamIDAfbeelding, cleanRelPath).Scan(&existingMediaID)
-
-		if err == nil {
-			a.logToUI("WARN", fmt.Sprintf("Bestand '%s' bestaat al in de database (Media-ID: %s). Import overgeslagen.", cleanRelPath, existingMediaID))
-			continue
-		} else if err != sql.ErrNoRows {
-			a.logToUI("ERROR", fmt.Sprintf("Fout bij duplicaatcheck voor %s: %v", cleanRelPath, err))
+		// Snelle in-memory duplicaatcheck
+		if existingPaths[cleanRelPath] {
+			a.logToUI("WARN", fmt.Sprintf("Bestand '%s' bestaat al in de database. Import overgeslagen.", cleanRelPath))
 			continue
 		}
 
-		// 2. Fysiek verplaatsen naar ../Media/YYYY/Wxx/...
+		// Fysiek verplaatsen op de schijf
 		destFullPath := filepath.Join(baseMediaDir, filepath.FromSlash(cleanRelPath))
 		if err := os.MkdirAll(filepath.Dir(destFullPath), 0755); err != nil {
 			a.logToUI("ERROR", fmt.Sprintf("Maken van doelmap mislukt voor %s: %v", item.FileName, err))
@@ -240,40 +282,64 @@ func (a *App) ExecuteMediaImport(mode string, groupName string, targetObjectID s
 			continue
 		}
 
-		// 3. Nieuw Media Object en parameters aanmaken
-		mediaID, err := a.insertMediaRecord(item, cleanRelPath, nowISO)
-		if err != nil {
+		// Insert Media Object & Parameters via Prepared Statements
+		mediaID := uuid.New().String()
+		label := fmt.Sprintf("%s: %s", item.MediaType, cleanRelPath)
+
+		// 1. Insert Object
+		if _, err := stmtInsertObject.Exec(mediaID, label, nowISO, nowISO); err != nil {
 			a.logToUI("ERROR", fmt.Sprintf("Aanmaken DB-record mislukt voor %s: %v", item.FileName, err))
 			continue
 		}
 
-		// 4. Koppelen aan Groep/Verzameling OF aan Source Object
-		if mode == "GROUP" && groupName != "" {
-			err = a.addMediaToGroup(mediaID, groupName, nowISO)
-			if err != nil {
-				a.logToUI("WARN", fmt.Sprintf("Koppelen aan groep '%s' mislukt: %v", groupName, err))
+		// 2. Type koppeling (Foto / Video)
+		typeObjectID := ObjectTypeFotoID
+		if item.MediaType == "VIDEO" {
+			typeObjectID = ObjectTypeVideoID
+		}
+		if _, err := stmtInsertRel.Exec(uuid.New().String(), RelIDMediaKoppeling, typeObjectID, mediaID, nil, nowISO, nowISO); err != nil {
+			a.logToUI("ERROR", fmt.Sprintf("Type koppelen mislukt: %v", err))
+			continue
+		}
+
+		// 3. Parameter 'afbeelding'
+		if _, err := stmtInsertParam.Exec(uuid.New().String(), ParamIDAfbeelding, mediaID, cleanRelPath, nowISO, nowISO); err != nil {
+			a.logToUI("ERROR", fmt.Sprintf("Parameter pad invoegen mislukt: %v", err))
+			continue
+		}
+
+		// 4. Parameter 'metadata'
+		metaJSON, _ := json.Marshal(item.Metadata)
+		if _, err := stmtInsertParam.Exec(uuid.New().String(), ParamIDMetadata, mediaID, string(metaJSON), nowISO, nowISO); err != nil {
+			a.logToUI("ERROR", fmt.Sprintf("Parameter metadata invoegen mislukt: %v", err))
+			continue
+		}
+
+		// 5. Koppeling aan Groep OF Object
+		if mode == "GROUP" && groupID != "" {
+			currentMaxOrder++
+			if _, err := stmtInsertRel.Exec(uuid.New().String(), RelIDVerzamelingKoppeling, groupID, mediaID, currentMaxOrder, nowISO, nowISO); err != nil {
+				a.logToUI("WARN", fmt.Sprintf("Koppelen aan groep mislukt: %v", err))
 			}
 		} else if mode == "OBJECT" && targetObjectID != "" {
 			currentMaxOrder++
-
-			relUUID := uuid.New().String()
-			insertRelationQuery := `
-				INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, valid_from, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
-			`
-			_, err = a.db.Exec(insertRelationQuery, relUUID, RelIDMediaKoppeling, targetObjectID, mediaID, currentMaxOrder, nowISO, nowISO)
-			if err != nil {
+			if _, err := stmtInsertRel.Exec(uuid.New().String(), RelIDMediaKoppeling, targetObjectID, mediaID, currentMaxOrder, nowISO, nowISO); err != nil {
 				a.logToUI("ERROR", fmt.Sprintf("Koppelen aan object mislukt voor %s: %v", item.FileName, err))
 				continue
 			}
-
-			a.logToUI("SUCCESS", fmt.Sprintf("Gekoppeld aan object (volgorde %d): %s", currentMaxOrder, item.FileName))
 		}
 
+		existingPaths[cleanRelPath] = true
 		importedCount++
 	}
 
-	a.logToUI("SUCCESS", fmt.Sprintf("Import afgerond! %d van de %d bestanden succesvol verwerkt.", importedCount, len(items)))
+	// 4. Sluit de transactie in één keer af op de schijf
+	if err := tx.Commit(); err != nil {
+		a.logToUI("ERROR", fmt.Sprintf("Transactie commit mislukt: %v", err))
+		return fmt.Errorf("fout bij opslaan in database: %w", err)
+	}
+
+	a.logToUI("SUCCESS", fmt.Sprintf("Import afgerond! %d van de %d bestanden bliksemsnel verwerkt.", importedCount, len(items)))
 	return nil
 }
 

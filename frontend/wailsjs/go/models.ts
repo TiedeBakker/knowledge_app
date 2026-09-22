@@ -208,6 +208,28 @@ export namespace main {
 	        this.label = source["label"];
 	    }
 	}
+	export class ObjectSummary {
+	    id: string;
+	    label: string;
+	    is_confidential: boolean;
+	    valid_from: string;
+	    valid_to?: string;
+	    updated_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ObjectSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.is_confidential = source["is_confidential"];
+	        this.valid_from = source["valid_from"];
+	        this.valid_to = source["valid_to"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
 	export class ObjectTypeOption {
 	    id: string;
 	    label: string;
@@ -242,7 +264,75 @@ export namespace main {
 	        this.unit = source["unit"];
 	    }
 	}
+	export class ParameterSummary {
+	    id: string;
+	    parameter_id: string;
+	    parameter_code: string;
+	    parameter_label: string;
+	    data_type: string;
+	    target_id: string;
+	    target_type: string;
+	    value: string;
+	    unit: string;
+	    is_confidential: boolean;
+	    valid_from: string;
+	    valid_to?: string;
 	
+	    static createFrom(source: any = {}) {
+	        return new ParameterSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.parameter_id = source["parameter_id"];
+	        this.parameter_code = source["parameter_code"];
+	        this.parameter_label = source["parameter_label"];
+	        this.data_type = source["data_type"];
+	        this.target_id = source["target_id"];
+	        this.target_type = source["target_type"];
+	        this.value = source["value"];
+	        this.unit = source["unit"];
+	        this.is_confidential = source["is_confidential"];
+	        this.valid_from = source["valid_from"];
+	        this.valid_to = source["valid_to"];
+	    }
+	}
+	
+	export class RelationSummary {
+	    id: string;
+	    relation_id: string;
+	    relation_label: string;
+	    source_id: string;
+	    source_label: string;
+	    target_id: string;
+	    target_label: string;
+	    volgorde: number;
+	    is_confidential: boolean;
+	    valid_from: string;
+	    valid_to?: string;
+	    updated_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RelationSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.relation_id = source["relation_id"];
+	        this.relation_label = source["relation_label"];
+	        this.source_id = source["source_id"];
+	        this.source_label = source["source_label"];
+	        this.target_id = source["target_id"];
+	        this.target_label = source["target_label"];
+	        this.volgorde = source["volgorde"];
+	        this.is_confidential = source["is_confidential"];
+	        this.valid_from = source["valid_from"];
+	        this.valid_to = source["valid_to"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
 	export class RelationTypeEntity {
 	    id: string;
 	    label: string;
@@ -262,6 +352,42 @@ export namespace main {
 	    }
 	}
 	
+	export class ReportTreeNode {
+	    object: ObjectSummary;
+	    parameters: ParameterSummary[];
+	    relation?: RelationSummary;
+	    children: ReportTreeNode[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ReportTreeNode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.object = this.convertValues(source["object"], ObjectSummary);
+	        this.parameters = this.convertValues(source["parameters"], ParameterSummary);
+	        this.relation = this.convertValues(source["relation"], RelationSummary);
+	        this.children = this.convertValues(source["children"], ReportTreeNode);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class TreeNodeData {
 	    centralNodeId: string;
 	    inLevels: number;

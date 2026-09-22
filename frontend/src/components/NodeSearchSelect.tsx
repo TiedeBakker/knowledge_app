@@ -1,3 +1,4 @@
+// src/components/NodeSearchSelect.tsx
 import React, { useEffect, useState, useCallback } from 'react';
 import AsyncSelect from 'react-select/async';
 import { SearchNodesForSelect } from '../../wailsjs/go/main/App';
@@ -14,6 +15,8 @@ interface Props {
     onSelectNode: (node: main.ObjectEntity | null) => void;
     placeholder?: string;
     excludeNodeId?: string; // Om te voorkomen dat een node naar zichzelf kan linken
+    excludePhotos?: boolean; // NEW: Negeer objecten waarvan het label start met FOTO:
+    filterNode?: (node: main.ObjectEntity) => boolean; // NEW: Optionele maatwerk filter
     isDisabled?: boolean;
 }
 
@@ -22,6 +25,8 @@ export const NodeSearchSelect: React.FC<Props> = ({
     onSelectNode, 
     placeholder = "Zoek en kies een node...",
     excludeNodeId,
+    excludePhotos = false,
+    filterNode,
     isDisabled = false
 }) => {
     const [selectedOption, setSelectedOption] = useState<NodeOption | null>(null);
@@ -45,7 +50,19 @@ export const NodeSearchSelect: React.FC<Props> = ({
             if (!nodes) return [];
 
             return nodes
-                .filter((node) => node.id !== excludeNodeId) // Optionele uitsluiting
+                .filter((node) => node.id !== excludeNodeId)
+                .filter((node) => {
+                    // Filter foto-nodes eruit als excludePhotos actief is
+                    if (excludePhotos) {
+                        const lbl = (node.label || '').trim().toUpperCase();
+                        if (lbl.startsWith('FOTO:')) return false;
+                    }
+                    // Eventuele extra aangepaste filter
+                    if (filterNode && !filterNode(node)) {
+                        return false;
+                    }
+                    return true;
+                })
                 .map((node) => ({
                     value: node.id,
                     label: node.label || node.id,
@@ -55,7 +72,7 @@ export const NodeSearchSelect: React.FC<Props> = ({
             console.error("Fout bij zoeken van nodes:", error);
             return [];
         }
-    }, [excludeNodeId]);
+    }, [excludeNodeId, excludePhotos, filterNode]);
 
     return (
         <div style={{ width: '100%' }}>
@@ -75,6 +92,11 @@ export const NodeSearchSelect: React.FC<Props> = ({
                     inputValue ? "Geen nodes gevonden" : "Typ om te zoeken..."
                 }
                 loadingMessage={() => "Zoeken..."}
+                
+                /* PORTAL CONFIGURATIE DIE DUBBELE SCROLLBALK VERHELPT */
+                menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                menuPosition="fixed"
+                
                 styles={{
                     control: (base) => ({
                         ...base,
@@ -86,7 +108,17 @@ export const NodeSearchSelect: React.FC<Props> = ({
                         ...base,
                         backgroundColor: state.isFocused ? '#e6f2ff' : 'white',
                         color: 'black',
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                    }),
+                    menuPortal: (base) => ({
+                        ...base,
+                        zIndex: 9999
+                    }),
+                    menuList: (base) => ({
+                        ...base,
+                        maxHeight: '250px'
                     })
                 }}
             />

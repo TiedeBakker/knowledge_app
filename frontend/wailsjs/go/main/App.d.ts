@@ -8,6 +8,8 @@ export function DeleteRelationValue(arg1:string):Promise<void>;
 
 export function ExecuteMediaImport(arg1:string,arg2:string,arg3:string,arg4:Array<main.MediaImportItem>):Promise<void>;
 
+export function ExportReportToPDF(arg1:main.ReportTreeNode,arg2:string):Promise<void>;
+
 export function FetchReportTree(arg1:string,arg2:number,arg3:string):Promise<main.ReportTreeNode>;
 
 export function GetAllObjectsSimple():Promise<Array<main.ObjectEntity>>;
@@ -41,5 +43,7 @@ export function SearchNodesForSelect(arg1:string,arg2:number):Promise<Array<main
 export function SearchParametersForSelect(arg1:string):Promise<Array<main.ParameterDefinition>>;
 
 export function SelectDirectory():Promise<string>;
+
+export function SelectSavePath(arg1:string):Promise<string>;
 
 export function UpdateObject(arg1:main.ObjectEntity):Promise<void>;

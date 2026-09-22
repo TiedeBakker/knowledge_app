@@ -1,11 +1,9 @@
-// src/modules/reporting/puppeteer_exporter.go
-package report
+package main
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"knowledge-app"
 )
 
 type PuppeteerExporter struct {
@@ -16,7 +14,7 @@ func NewPuppeteerExporter(scriptPath string) *PuppeteerExporter {
 	return &PuppeteerExporter{NodeScriptPath: scriptPath}
 }
 
-func (p *PuppeteerExporter) GenerateReportPDF(tree *models.ReportTreeNode, template *models.ReportTemplate, outputPath string) error {
+func (p *PuppeteerExporter) GenerateReportPDF(tree *ReportTreeNode, template *ReportTemplate, outputPath string) error {
 	// 1. Genereer een tijdelijk HTML-bestand op basis van de tree (CSS Paged Media opgemaakt)
 	tempHTMLPath := outputPath + ".tmp.html"
 	htmlContent := renderTreeToHTML(tree, template)
@@ -35,7 +33,7 @@ func (p *PuppeteerExporter) GenerateReportPDF(tree *models.ReportTreeNode, templ
 	return nil
 }
 
-func renderTreeToHTML(tree *models.ReportTreeNode, template *models.ReportTemplate) string {
+func renderTreeToHTML(tree *ReportTreeNode, template *ReportTemplate) string {
 	// Hier genereer je de volledige HTML pagina inclusief <style> met @page regels
 	return "<html><body>...</body></html>"
 }

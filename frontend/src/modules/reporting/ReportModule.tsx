@@ -3,8 +3,8 @@ import { ReportTemplate, ReportTreeNode } from '../../types/report';
 import { TemplateEditModal } from './TemplateEditModal';
 import { NodeSearchSelect } from '../../components/NodeSearchSelect';
 import { getOutboundRelationLabel } from '../../utils/relationUtils';
-import { FetchReportTree } from '../../../wailsjs/go/main/App';
 import { main } from '../../../wailsjs/go/models';
+import { SelectSavePath,FetchReportTree, ExportReportToPDF } from '../../../wailsjs/go/main/App';
 
 const DEFAULT_TEMPLATES: ReportTemplate[] = [
   {
@@ -60,7 +60,7 @@ export const ReportModule: React.FC = () => {
     loadTreeData();
   }, [startNode, maxLevels, currentTemplate?.contentParameterCode]);
 
-// Render-functie voor een node in de boom
+  // Render-functie voor een node in de boom
   const renderTreePreview = (treeNode: ReportTreeNode, currentLevel: number = 0) => {
     const rule = currentTemplate?.hierarchyRules.find(r => r.level === currentLevel) || { fontSize: 12 };
 
@@ -69,8 +69,8 @@ export const ReportModule: React.FC = () => {
     const targetKey = rawSearchKey.toLowerCase();
 
     // Zoek de parameterwaarde op basis van ID, Code of Label (gebruik snake_case veldnamen)
-    const contentParam = treeNode.parameters?.find(p => 
-      p.parameter_id?.toLowerCase() === targetKey || 
+    const contentParam = treeNode.parameters?.find(p =>
+      p.parameter_id?.toLowerCase() === targetKey ||
       p.parameter_code?.toLowerCase() === targetKey ||
       p.parameter_label?.toLowerCase() === targetKey
     );
@@ -130,6 +130,36 @@ export const ReportModule: React.FC = () => {
       </div>
     );
   };
+
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+
+const handleExportPDF = async () => {
+    if (!reportTree) return;
+
+    try {
+      setIsExporting(true);
+
+      // 1. Roep de Go-backend aan om het 'Opslaan als'-scherm van Windows te openen
+      const defaultName = `${reportTree.object.label || 'rapport'}.pdf`;
+      const targetPath = await SelectSavePath(defaultName);
+
+      // 2. Als de gebruiker op 'Annuleren' drukt in het venster
+      if (!targetPath) {
+        setIsExporting(false);
+        return;
+      }
+
+      // 3. Roep Go aan met 'as any' om het Wails/TypeScript interfaceverschil te overbruggen
+      await ExportReportToPDF(reportTree as any, targetPath);
+
+      alert('PDF succesvol gegenereerd!');
+    } catch (err: any) {
+      console.error('Fout bij exporteren PDF:', err);
+      alert(`Fout bij exporteren: ${err.message || err}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
   return (
     <div style={{ display: 'flex', gap: '20px', height: '100%', padding: '16px', boxSizing: 'border-box' }}>
       {/* Linkerpaneel */}
@@ -179,19 +209,19 @@ export const ReportModule: React.FC = () => {
         <hr style={{ width: '100%', margin: '8px 0' }} />
 
         <button
-          disabled={!reportTree}
+          disabled={!reportTree || isExporting}
+          onClick={handleExportPDF}
           style={{
             ...buttonStyle,
-            backgroundColor: reportTree ? '#28a745' : '#ccc',
+            backgroundColor: reportTree && !isExporting ? '#28a745' : '#ccc',
             color: '#fff',
-            cursor: reportTree ? 'pointer' : 'not-allowed',
+            cursor: reportTree && !isExporting ? 'pointer' : 'not-allowed',
             fontWeight: 'bold',
             padding: '10px'
           }}
         >
-          📄 Genereer PDF Test (Stap 3)
-        </button>
-      </div>
+          {isExporting ? '⏳ Genereren...' : '📄 Genereer PDF Test (Stap 3)'}
+        </button>     </div>
 
       {/* Rechterpaneel: Document Preview */}
       <div style={{ flex: 1, backgroundColor: '#f9f9f9', padding: '16px', borderRadius: '4px', overflowY: 'auto' }}>
@@ -228,11 +258,11 @@ const labelStyle: React.CSSProperties = { display: 'block', fontWeight: 'bold', 
 const inputStyle: React.CSSProperties = { width: '100%', padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #ccc' };
 const buttonStyle: React.CSSProperties = { padding: '6px 12px', cursor: 'pointer', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#fff' };
 const pagePreviewStyle: React.CSSProperties = { background: '#fff', padding: '30px', minHeight: '500px', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' };
-const contentBoxStyle: React.CSSProperties = { 
-  margin: '6px 0 12px 0', 
-  padding: '8px 12px', 
-  backgroundColor: '#f4f6f8', 
-  borderRadius: '4px', 
+const contentBoxStyle: React.CSSProperties = {
+  margin: '6px 0 12px 0',
+  padding: '8px 12px',
+  backgroundColor: '#f4f6f8',
+  borderRadius: '4px',
   fontSize: '13px',
   color: '#222222', // Dwingt donkere tekst af
   lineHeight: '1.5'

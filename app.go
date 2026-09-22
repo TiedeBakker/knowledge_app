@@ -1,21 +1,24 @@
-// knowledge-app/app.go
 package main
 
 import (
 	"context"
-	"database/sql"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log"
-	"time"
 	"os"
-	"path/filepath"
-	_ "github.com/glebarez/go-sqlite"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
-	"regexp"
+	"time"
+
+	_ "github.com/glebarez/go-sqlite"
+	
+	// Geef Wails runtime een alias:
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
@@ -1004,4 +1007,34 @@ func (a *App) buildReportNodeRecursive(objectID string, rel *RelationValueEntity
 	}
 
 	return treeNode, nil
+}
+
+// ExportReportToPDF maakt een eenvoudige MVP PDF op basis van de meegegeven boomstructuur
+func (a *App) ExportReportToPDF(tree *ReportTreeNode, outputPath string) error {
+	if tree == nil {
+		return fmt.Errorf("geen rapportboom opgegeven")
+	}
+
+	// Gebruik de bestaande MarotoExporter
+	// (We geven nil mee voor template, zodat hij puur de basislogica volgt)
+	exporter := NewMarotoExporter()
+	return exporter.GenerateReportPDF(tree, nil, outputPath)
+}
+
+// SelectSavePath opent het standaard dialoogvenster voor het opslaan van een PDF
+func (a *App) SelectSavePath(defaultFilename string) (string, error) {
+	filePath, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
+		Title:           "Selecteer locatie voor PDF-rapport",
+		DefaultFilename: defaultFilename,
+		Filters: []wailsruntime.FileFilter{
+			{
+				DisplayName: "PDF Bestanden (*.pdf)",
+				Pattern:     "*.pdf",
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return filePath, nil
 }

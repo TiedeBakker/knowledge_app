@@ -67,3 +67,45 @@
   align-items: flex-start;
   margin-bottom: 1.5rem;
 }
+
+@media print {
+  /* 1. Reset alle Viewport Hoogtes (100vh) */
+  html, body, #app, #root, .app-container, .sidebar {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* 2. Verberg UI-elementen die niet op het rapport horen */
+  .sidebar, 
+  .modal-overlay, 
+  .nav-button,
+  .modal-footer {
+    display: none !important;
+  }
+
+  /* 3. Zorg dat de hoofdinhoud alle ruimte inneemt */
+  .main-content {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    position: static !important;
+  }
+
+  /* 4. Reset Grid & Flexbox overlays voor print */
+  .row-top, .row-bottom {
+    display: block !important; /* Zet grid om naar blokken als grid blijft overlappen */
+    min-height: auto !important;
+    page-break-inside: avoid; /* Voorkomt dat een blok middenin breekt */
+  }
+
+  /* 5. Forceer normale tekstkleuren en positionering */
+  * {
+    position: static !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    color: #000000 !important; /* Optioneel: voorkom witte tekst op witte PDF-achtergrond */
+    background: transparent !important;
+  }
+}

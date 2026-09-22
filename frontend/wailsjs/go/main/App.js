@@ -14,6 +14,10 @@ export function ExecuteMediaImport(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ExecuteMediaImport'](arg1, arg2, arg3, arg4);
 }
 
+export function ExportReportToPDF(arg1, arg2) {
+  return window['go']['main']['App']['ExportReportToPDF'](arg1, arg2);
+}
+
 export function FetchReportTree(arg1, arg2, arg3) {
   return window['go']['main']['App']['FetchReportTree'](arg1, arg2, arg3);
 }
@@ -80,6 +84,10 @@ export function SearchParametersForSelect(arg1) {
 
 export function SelectDirectory() {
   return window['go']['main']['App']['SelectDirectory']();
+}
+
+export function SelectSavePath(arg1) {
+  return window['go']['main']['App']['SelectSavePath'](arg1);
 }
 
 export function UpdateObject(arg1) {

@@ -40,15 +40,33 @@ func (m *MarotoExporter) GenerateReportPDF(tree *ReportTreeNode, template *Repor
 
 	// 1. Verzamel eerst alle koppen voor de Inhoudsopgave
 	var tocItems []TOCItem
-	m.collectTOCItems(tree, 0, []int{}, &tocItems)
+	
+	// Als de root zelf een virtuele container is (geen label), verwerken we alleen de kinderen op niveau 0
+	if tree != nil {
+		if tree.Object.Label == "" {
+			for i, child := range tree.Children {
+				m.collectTOCItems(child, 0, fmt.Sprintf("%d", i+1), &tocItems)
+			}
+		} else {
+			m.collectTOCItems(tree, 0, "1", &tocItems)
+		}
+	}
 
-	// 2. Genereer het Inhoudsopgave-blok vooraan in het document
+	// 2. Genereer de Inhoudsopgave
 	if len(tocItems) > 0 {
 		m.renderTableOfContents(marotoDoc, tocItems)
 	}
 
-	// 3. Recursief de boom doorlopen en de hoofdinhoud toevoegen
-	m.appendNode(marotoDoc, tree, template, 0, []int{})
+	// 3. Hoofdinhoud toevoegen
+	if tree != nil {
+		if tree.Object.Label == "" {
+			for i, child := range tree.Children {
+				m.appendNode(marotoDoc, child, template, 0, fmt.Sprintf("%d", i+1))
+			}
+		} else {
+			m.appendNode(marotoDoc, tree, template, 0, "1")
+		}
+	}
 
 	document, err := marotoDoc.Generate()
 	if err != nil {
@@ -62,46 +80,27 @@ func (m *MarotoExporter) GenerateReportPDF(tree *ReportTreeNode, template *Repor
 	return nil
 }
 
-// collectTOCItems bouwt de lijst van koppen op zonder het PDF-document nog te vullen
-func (m *MarotoExporter) collectTOCItems(node *ReportTreeNode, level int, indices []int, items *[]TOCItem) {
+func (m *MarotoExporter) collectTOCItems(node *ReportTreeNode, level int, numberPrefix string, items *[]TOCItem) {
 	if node == nil {
 		return
 	}
 
-	// Indexering bepalen
-	if len(indices) <= level {
-		for len(indices) <= level {
-			indices = append(indices, 0)
-		}
-	} else {
-		indices = indices[:level+1]
-	}
-	indices[level]++
-
-	var numberParts []string
-	for _, num := range indices {
-		numberParts = append(numberParts, fmt.Sprintf("%d", num))
-	}
-	sectionNumber := strings.Join(numberParts, ".")
-
 	if node.Object.Label != "" {
 		*items = append(*items, TOCItem{
-			Number: sectionNumber,
+			Number: numberPrefix,
 			Title:  node.Object.Label,
 			Level:  level,
 		})
 	}
 
-	for _, child := range node.Children {
-		childIndices := make([]int, len(indices))
-		copy(childIndices, indices)
-		m.collectTOCItems(child, level+1, childIndices, items)
+	// Geef elk kind een uniek volgnummer op basis van de index in de Children-array
+	for i, child := range node.Children {
+		childNumber := fmt.Sprintf("%s.%d", numberPrefix, i+1)
+		m.collectTOCItems(child, level+1, childNumber, items)
 	}
 }
 
-// renderTableOfContents tekent de Inhoudsopgave bovenaan het document
 func (m *MarotoExporter) renderTableOfContents(doc core.Maroto, items []TOCItem) {
-	// Kop van de Inhoudsopgave
 	doc.AddRows(
 		row.New(12).Add(
 			text.NewCol(12, "Inhoudsopgave", props.Text{
@@ -112,13 +111,10 @@ func (m *MarotoExporter) renderTableOfContents(doc core.Maroto, items []TOCItem)
 		),
 	)
 
-	// Elk item in de inhoudsopgave weergaven met inspringing per level
 	for _, item := range items {
-		// Inspringing/Indentatie op basis van niveau
 		indent := strings.Repeat("  ", item.Level*2)
 		label := fmt.Sprintf("%s%s %s", indent, item.Number, item.Title)
 
-		// Stijl variëren op basis van niveau (H1 is vetgedrukt)
 		style := fontstyle.Normal
 		if item.Level == 0 {
 			style = fontstyle.Bold
@@ -135,39 +131,21 @@ func (m *MarotoExporter) renderTableOfContents(doc core.Maroto, items []TOCItem)
 		)
 	}
 
-	// Scheidingslijn onder de inhoudsopgave en een kleine witruimte
 	doc.AddRows(
 		row.New(4).Add(
 			line.NewCol(12),
 		),
-		row.New(8), // Lege rij voor extra afstandsruimte tot de hoofdinhoud
+		row.New(8),
 	)
 }
 
-func (m *MarotoExporter) appendNode(doc core.Maroto, node *ReportTreeNode, template *ReportTemplate, level int, indices []int) {
+func (m *MarotoExporter) appendNode(doc core.Maroto, node *ReportTreeNode, template *ReportTemplate, level int, numberPrefix string) {
 	if node == nil {
 		return
 	}
 
-	// 1. Nummering opbouwen
-	if len(indices) <= level {
-		for len(indices) <= level {
-			indices = append(indices, 0)
-		}
-	} else {
-		indices = indices[:level+1]
-	}
+	displayTitle := fmt.Sprintf("%s %s", numberPrefix, node.Object.Label)
 
-	indices[level]++
-
-	var numberParts []string
-	for _, num := range indices {
-		numberParts = append(numberParts, fmt.Sprintf("%d", num))
-	}
-	sectionNumber := strings.Join(numberParts, ".")
-	displayTitle := fmt.Sprintf("%s %s", sectionNumber, node.Object.Label)
-
-	// 2. Lettergrootte bepalen
 	fontSize := 12.0
 	if template != nil {
 		for _, rule := range template.HierarchyRules {
@@ -187,7 +165,7 @@ func (m *MarotoExporter) appendNode(doc core.Maroto, node *ReportTreeNode, templ
 		}
 	}
 
-	// 3. Titel toevoegen
+	// Kop toevoegen
 	if node.Object.Label != "" {
 		titleHeight := calculateRowHeight(displayTitle, fontSize, 10.0)
 		doc.AddRows(
@@ -201,7 +179,7 @@ func (m *MarotoExporter) appendNode(doc core.Maroto, node *ReportTreeNode, templ
 		)
 	}
 
-	// 4. Content / Toelichting toevoegen
+	// Content / Toelichting toevoegen
 	targetKey := "toelichting"
 	if template != nil && template.ContentParameterCode != "" {
 		targetKey = strings.ToLower(template.ContentParameterCode)
@@ -232,11 +210,10 @@ func (m *MarotoExporter) appendNode(doc core.Maroto, node *ReportTreeNode, templ
 		}
 	}
 
-	// 5. Children toevoegen
-	for _, child := range node.Children {
-		childIndices := make([]int, len(indices))
-		copy(childIndices, indices)
-		m.appendNode(doc, child, template, level+1, childIndices)
+	// Kinderen verwerken met de expliciete string-prefix (bijv. "1.1", "1.2", etc.)
+	for i, child := range node.Children {
+		childNumber := fmt.Sprintf("%s.%d", numberPrefix, i+1)
+		m.appendNode(doc, child, template, level+1, childNumber)
 	}
 }
 
@@ -269,12 +246,14 @@ func calculateRowHeight(txt string, fontSize float64, minHeight float64) float64
 }
 
 func stripHTML(input string) string {
-	r := strings.NewReplacer("<p>", "", "</p>", "\n", "<br>", "\n", "<br/>", "\n")
-	res := r.Replace(input)
+	r := strings.ReplaceAll(input, "<p>", "")
+	r = strings.ReplaceAll(r, "</p>", "\n")
+	r = strings.ReplaceAll(r, "<br>", "\n")
+	r = strings.ReplaceAll(r, "<br/>", "\n")
 
 	var result strings.Builder
 	inTag := false
-	for _, char := range res {
+	for _, char := range r {
 		if char == '<' {
 			inTag = true
 		} else if char == '>' {

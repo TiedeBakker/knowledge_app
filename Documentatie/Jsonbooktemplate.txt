@@ -1,0 +1,116 @@
+{
+  "id": "tpl_boek_standaard_01",
+  "naam": "Standaard Boekrapportage",
+  "type": "book",
+  "version": 1,
+  "global_settings": {
+    "toc": {
+      "enabled": true,
+      "max_depth": 3,
+      "title": "Inhoudsopgave"
+    },
+    "numbering": {
+      "type": "decimal",
+      "separator": ".",
+      "stop_at_level": 3
+    }
+  },
+  "root_level": {
+    "title_field": "titel",
+    "fallback_title_field": "label",
+    "sub_title_field": null,
+    "elements": [
+      {
+        "field": "tekst",
+        "role": "schutbladtekst",
+        "css_class": "cover-text"
+      },
+      {
+        "field": "toelichting",
+        "role": "colofon",
+        "css_class": "colophon"
+      }
+    ]
+  },
+  "level_rules": [
+    {
+      "level": 1,
+      "name": "Sectie / Hoofdstuk",
+      "heading_tag": "h1",
+      "page_break_before": true,
+      "include_in_toc": true,
+      "filter": {
+        "allowed_object_types": [],
+        "excluded_object_types": ["system_node"]
+      },
+      "fields": [
+        {
+          "field": "titel",
+          "fallback": "label",
+          "type": "heading"
+        },
+        {
+          "field": "toelichting",
+          "type": "rich_text",
+          "css_class": "section-intro"
+        }
+      ]
+    },
+    {
+      "level": 2,
+      "name": "Paragraaf",
+      "heading_tag": "h2",
+      "page_break_before": false,
+      "include_in_toc": true,
+      "fields": [
+        {
+          "field": "titel",
+          "fallback": "label",
+          "type": "heading"
+        },
+        {
+          "field": "tekst",
+          "type": "rich_text"
+        },
+        {
+          "field": "toelichting",
+          "type": "text",
+          "css_class": "note-box"
+        }
+      ]
+    },
+    {
+      "level": 3,
+      "name": "Sub-paragraaf",
+      "heading_tag": "h3",
+      "page_break_before": false,
+      "include_in_toc": false,
+      "fields": [
+        {
+          "field": "titel",
+          "fallback": "label",
+          "type": "heading"
+        },
+        {
+          "field": "tekst",
+          "type": "rich_text"
+        }
+      ]
+    }
+  ],
+  "default_fallback_rule": {
+    "heading_tag": null,
+    "include_in_toc": false,
+    "show_heading": false,
+    "fields": [
+      {
+        "field": "label",
+        "type": "inline_bold"
+      },
+      {
+        "field": "toelichting",
+        "type": "text"
+      }
+    ]
+  }
+}

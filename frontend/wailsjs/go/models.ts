@@ -1,5 +1,149 @@
 export namespace main {
 	
+	export class DbTemplateRecord {
+	    id: string;
+	    label: string;
+	    description?: string;
+	    type: string;
+	    config_json?: string;
+	    updated_at: string;
+	    deleted_at?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DbTemplateRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.description = source["description"];
+	        this.type = source["type"];
+	        this.config_json = source["config_json"];
+	        this.updated_at = source["updated_at"];
+	        this.deleted_at = source["deleted_at"];
+	    }
+	}
+	export class TemplateFieldConfig {
+	    field: string;
+	    fallback?: string;
+	    type: string;
+	    css_class?: string;
+	    role?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateFieldConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.field = source["field"];
+	        this.fallback = source["fallback"];
+	        this.type = source["type"];
+	        this.css_class = source["css_class"];
+	        this.role = source["role"];
+	    }
+	}
+	export class DefaultFallbackRule {
+	    heading_tag?: string;
+	    include_in_toc: boolean;
+	    show_heading: boolean;
+	    fields: TemplateFieldConfig[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DefaultFallbackRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.heading_tag = source["heading_tag"];
+	        this.include_in_toc = source["include_in_toc"];
+	        this.show_heading = source["show_heading"];
+	        this.fields = this.convertValues(source["fields"], TemplateFieldConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class NumberingConfig {
+	    type: string;
+	    separator: string;
+	    stop_at_level: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NumberingConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.separator = source["separator"];
+	        this.stop_at_level = source["stop_at_level"];
+	    }
+	}
+	export class TOCConfig {
+	    enabled: boolean;
+	    max_depth: number;
+	    title: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TOCConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.max_depth = source["max_depth"];
+	        this.title = source["title"];
+	    }
+	}
+	export class GlobalSettings {
+	    toc: TOCConfig;
+	    numbering: NumberingConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new GlobalSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.toc = this.convertValues(source["toc"], TOCConfig);
+	        this.numbering = this.convertValues(source["numbering"], NumberingConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ParameterValueEntity {
 	    id: string;
 	    parameterId: string;
@@ -132,6 +276,50 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class GraphNode {
+	    id: string;
+	    label: string;
+	    relationType?: string;
+	    relationValue?: number;
+	    incoming?: GraphNode[];
+	    children?: GraphNode[];
+	    totalChildren?: number;
+	    hasMore?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GraphNode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.relationType = source["relationType"];
+	        this.relationValue = source["relationValue"];
+	        this.incoming = this.convertValues(source["incoming"], GraphNode);
+	        this.children = this.convertValues(source["children"], GraphNode);
+	        this.totalChildren = source["totalChildren"];
+	        this.hasMore = source["hasMore"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MediaMetadataJSON {
 	    opnamedatum: string;
 	    oorspronkelijkFormaat: string;
@@ -192,6 +380,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	
 	
 	export class ObjectSelectItem {
@@ -352,6 +541,142 @@ export namespace main {
 	    }
 	}
 	
+	export class TemplateFilter {
+	    allowed_object_types?: string[];
+	    excluded_object_types?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.allowed_object_types = source["allowed_object_types"];
+	        this.excluded_object_types = source["excluded_object_types"];
+	    }
+	}
+	export class TemplateLevelRule {
+	    level: number;
+	    name: string;
+	    heading_tag?: string;
+	    page_break_before: boolean;
+	    include_in_toc: boolean;
+	    filter?: TemplateFilter;
+	    fields: TemplateFieldConfig[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateLevelRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.level = source["level"];
+	        this.name = source["name"];
+	        this.heading_tag = source["heading_tag"];
+	        this.page_break_before = source["page_break_before"];
+	        this.include_in_toc = source["include_in_toc"];
+	        this.filter = this.convertValues(source["filter"], TemplateFilter);
+	        this.fields = this.convertValues(source["fields"], TemplateFieldConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RootLevelConfig {
+	    title_field: string;
+	    fallback_title_field?: string;
+	    sub_title_field?: string;
+	    elements: TemplateFieldConfig[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RootLevelConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title_field = source["title_field"];
+	        this.fallback_title_field = source["fallback_title_field"];
+	        this.sub_title_field = source["sub_title_field"];
+	        this.elements = this.convertValues(source["elements"], TemplateFieldConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ReportTemplateConfig {
+	    id: string;
+	    naam: string;
+	    type: string;
+	    version: number;
+	    global_settings: GlobalSettings;
+	    root_level: RootLevelConfig;
+	    level_rules: TemplateLevelRule[];
+	    default_fallback_rule: DefaultFallbackRule;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReportTemplateConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.naam = source["naam"];
+	        this.type = source["type"];
+	        this.version = source["version"];
+	        this.global_settings = this.convertValues(source["global_settings"], GlobalSettings);
+	        this.root_level = this.convertValues(source["root_level"], RootLevelConfig);
+	        this.level_rules = this.convertValues(source["level_rules"], TemplateLevelRule);
+	        this.default_fallback_rule = this.convertValues(source["default_fallback_rule"], DefaultFallbackRule);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ReportTreeNode {
 	    object: ObjectSummary;
 	    parameters: ParameterSummary[];
@@ -388,6 +713,25 @@ export namespace main {
 		    return a;
 		}
 	}
+	
+	export class SimpleObject {
+	    id: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SimpleObject(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	    }
+	}
+	
+	
+	
+	
 	export class TreeNodeData {
 	    centralNodeId: string;
 	    inLevels: number;

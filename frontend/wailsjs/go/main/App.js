@@ -14,12 +14,24 @@ export function ExecuteMediaImport(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ExecuteMediaImport'](arg1, arg2, arg3, arg4);
 }
 
+export function ExportBookReportToHTML(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportBookReportToHTML'](arg1, arg2, arg3);
+}
+
+export function ExportBookReportToPDF(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportBookReportToPDF'](arg1, arg2, arg3);
+}
+
 export function ExportReportToPDF(arg1, arg2) {
   return window['go']['main']['App']['ExportReportToPDF'](arg1, arg2);
 }
 
 export function FetchReportTree(arg1, arg2, arg3) {
   return window['go']['main']['App']['FetchReportTree'](arg1, arg2, arg3);
+}
+
+export function GenerateBookReport(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GenerateBookReport'](arg1, arg2, arg3);
 }
 
 export function GetAllObjectsSimple() {
@@ -34,6 +46,10 @@ export function GetGraphNetwork(arg1, arg2) {
   return window['go']['main']['App']['GetGraphNetwork'](arg1, arg2);
 }
 
+export function GetObjectTree(arg1, arg2) {
+  return window['go']['main']['App']['GetObjectTree'](arg1, arg2);
+}
+
 export function GetObjectTypes() {
   return window['go']['main']['App']['GetObjectTypes']();
 }
@@ -42,12 +58,28 @@ export function GetObjectsForSelect(arg1) {
   return window['go']['main']['App']['GetObjectsForSelect'](arg1);
 }
 
+export function GetObjectsForSelector() {
+  return window['go']['main']['App']['GetObjectsForSelector']();
+}
+
 export function GetParametersForTarget(arg1) {
   return window['go']['main']['App']['GetParametersForTarget'](arg1);
 }
 
+export function GetParsedTemplateById(arg1) {
+  return window['go']['main']['App']['GetParsedTemplateById'](arg1);
+}
+
 export function GetRelationsForTarget(arg1) {
   return window['go']['main']['App']['GetRelationsForTarget'](arg1);
+}
+
+export function GetTemplateById(arg1) {
+  return window['go']['main']['App']['GetTemplateById'](arg1);
+}
+
+export function GetTemplates() {
+  return window['go']['main']['App']['GetTemplates']();
 }
 
 export function GetTreeForNode(arg1, arg2, arg3) {
@@ -66,8 +98,16 @@ export function SaveParameterValue(arg1) {
   return window['go']['main']['App']['SaveParameterValue'](arg1);
 }
 
+export function SaveParsedTemplate(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveParsedTemplate'](arg1, arg2, arg3);
+}
+
 export function SaveRelationValue(arg1) {
   return window['go']['main']['App']['SaveRelationValue'](arg1);
+}
+
+export function SaveTemplateRecord(arg1) {
+  return window['go']['main']['App']['SaveTemplateRecord'](arg1);
 }
 
 export function ScanMediaDirectory(arg1) {

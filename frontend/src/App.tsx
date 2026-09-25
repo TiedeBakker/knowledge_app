@@ -1,41 +1,33 @@
 import { useState } from 'react';
 import { Sidebar, ModuleType } from './components/layout/Sidebar';
 import { TreeViewerModule } from './modules/tree-viewer/TreeViewerModule';
+import { BaseModule } from './modules/base-module/BaseModule'; // Importeer de nieuwe module
 import { ReportModule } from './modules/reporting/ReportModule';
 import { MediaImportModal } from './modules/import/MediaImportModal';
 import './App.css';
 
-// function App() {
-//   const [activeModule, setActiveModule] = useState<ModuleType>('tree-viewer');
-
-//   return (
-//     <div className="app-layout" style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-//       <Sidebar activeModule={activeModule} onSelectModule={setActiveModule} />
-//       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', background: '#ffffff' }}>
-//         {activeModule === 'tree-viewer' && <TreeViewerModule />}
-//         {activeModule === 'reporting' && <ReportModule />}
-//       </main>
-//     </div>
-//   );
-// }
-
 export const App: React.FC = () => {
   const [activeModule, setActiveModule] = useState<ModuleType>('tree-viewer');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   const handleImportCompleted = () => {
-    // Schakel bijvoorbeeld terug naar de boomstructuur om de nieuwe media/groep te zien
     setActiveModule('tree-viewer');
   };
 
   return (
-    <div className="app-container" style={{ display: 'flex', height: '100vh' }}>
-      <Sidebar activeModule={activeModule} onSelectModule={setActiveModule} />
-      
-      <main className="main-content" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
-         {activeModule === 'tree-viewer' && <TreeViewerModule />}
+    <div className="app-container" style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+      <Sidebar
+        activeModule={activeModule}
+        onSelectModule={setActiveModule}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+      />
+
+      <main className="main-content" style={{ flex: 1, padding: '0', overflow: 'hidden', height: '100vh' }}>
+        {activeModule === 'tree-viewer' && <TreeViewerModule />}
+        {activeModule === 'base-module' && <BaseModule />}
         {activeModule === 'reporting' && <ReportModule />}
-        
-        {/* Render de Media Import Modal wanneer 'media-import' actief is */}
+
         <MediaImportModal
           isOpen={activeModule === 'media-import'}
           onClose={() => setActiveModule('tree-viewer')}

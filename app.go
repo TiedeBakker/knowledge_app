@@ -1021,6 +1021,7 @@ func (a *App) ExportReportToPDF(tree *ReportTreeNode, outputPath string) error {
 	return exporter.GenerateReportPDF(tree, nil, outputPath)
 }
 
+
 // SelectSavePath opent het standaard dialoogvenster voor het opslaan van een PDF
 func (a *App) SelectSavePath(defaultFilename string) (string, error) {
 	filePath, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{

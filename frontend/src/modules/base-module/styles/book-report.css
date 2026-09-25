@@ -1,0 +1,105 @@
+/* Document Wrapper */
+.book-report-wrapper {
+  background-color: #ffffff;
+  color: #1a1a1a;
+  max-width: 850px;
+  margin: 20px auto;
+  padding: 50px 60px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.6;
+}
+
+/* Titel & Colofon */
+.book-main-title {
+  font-size: 2.2rem;
+  margin-bottom: 10px;
+  color: #003e78;
+  border-bottom: 2px solid #005fb8;
+  padding-bottom: 8px;
+}
+
+.book-colophon {
+  font-style: italic;
+  color: #555555;
+  background-color: #f9f9f9;
+  padding: 12px 16px;
+  border-left: 4px solid #cccccc;
+  margin-bottom: 30px;
+}
+
+/* Inhoudsopgave */
+.report-toc {
+  background-color: #f4f7fa;
+  padding: 20px 25px;
+  border-radius: 6px;
+  margin-bottom: 30px;
+}
+
+.report-toc h2 {
+  font-size: 1.2rem;
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.report-toc ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.report-toc li {
+  margin-bottom: 6px;
+}
+
+.report-toc a {
+  color: #005fb8;
+  text-decoration: none;
+}
+
+.report-toc a:hover {
+  text-decoration: underline;
+}
+
+.toc-num {
+  font-weight: 600;
+  display: inline-block;
+  min-width: 28px;
+}
+
+.toc-level-2 { padding-left: 20px; }
+.toc-level-3 { padding-left: 40px; }
+
+/* Koppen & Secties */
+.report-section {
+  margin-bottom: 24px;
+}
+
+.report-heading {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.report-heading:hover {
+  color: #005fb8;
+}
+
+.report-heading .num {
+  color: #666666;
+  margin-right: 4px;
+}
+
+/* Editable Hover-effecten */
+.editable-richtext {
+  padding: 4px 8px;
+  border: 1px transparent dashed;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.editable-richtext:hover {
+  border-color: #005fb8;
+  background-color: #f0f7ff;
+}

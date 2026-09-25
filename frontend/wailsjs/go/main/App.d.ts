@@ -8,9 +8,15 @@ export function DeleteRelationValue(arg1:string):Promise<void>;
 
 export function ExecuteMediaImport(arg1:string,arg2:string,arg3:string,arg4:Array<main.MediaImportItem>):Promise<void>;
 
+export function ExportBookReportToHTML(arg1:string,arg2:number,arg3:string):Promise<string>;
+
+export function ExportBookReportToPDF(arg1:string,arg2:number,arg3:string):Promise<string>;
+
 export function ExportReportToPDF(arg1:main.ReportTreeNode,arg2:string):Promise<void>;
 
 export function FetchReportTree(arg1:string,arg2:number,arg3:string):Promise<main.ReportTreeNode>;
+
+export function GenerateBookReport(arg1:string,arg2:number,arg3:string):Promise<string>;
 
 export function GetAllObjectsSimple():Promise<Array<main.ObjectEntity>>;
 
@@ -18,13 +24,23 @@ export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;
 
 export function GetGraphNetwork(arg1:boolean,arg2:number):Promise<main.GraphData>;
 
+export function GetObjectTree(arg1:string,arg2:number):Promise<main.GraphNode>;
+
 export function GetObjectTypes():Promise<Array<main.ObjectTypeOption>>;
 
 export function GetObjectsForSelect(arg1:string):Promise<Array<main.ObjectSelectItem>>;
 
+export function GetObjectsForSelector():Promise<Array<main.SimpleObject>>;
+
 export function GetParametersForTarget(arg1:string):Promise<Array<main.ParameterValueEntity>>;
 
+export function GetParsedTemplateById(arg1:string):Promise<main.ReportTemplateConfig>;
+
 export function GetRelationsForTarget(arg1:string):Promise<Array<main.RelationValueEntity>>;
+
+export function GetTemplateById(arg1:string):Promise<main.DbTemplateRecord>;
+
+export function GetTemplates():Promise<Array<main.DbTemplateRecord>>;
 
 export function GetTreeForNode(arg1:string,arg2:number,arg3:number):Promise<main.TreeNodeData>;
 
@@ -34,7 +50,11 @@ export function ReindexOutgoingRelations(arg1:string):Promise<number>;
 
 export function SaveParameterValue(arg1:main.ParameterValueEntity):Promise<void>;
 
+export function SaveParsedTemplate(arg1:string,arg2:any,arg3:main.ReportTemplateConfig):Promise<void>;
+
 export function SaveRelationValue(arg1:main.RelationValueEntity):Promise<void>;
+
+export function SaveTemplateRecord(arg1:main.DbTemplateRecord):Promise<main.DbTemplateRecord>;
 
 export function ScanMediaDirectory(arg1:string):Promise<Array<main.MediaImportItem>>;
 

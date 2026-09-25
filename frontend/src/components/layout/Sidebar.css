@@ -6,17 +6,53 @@
   flex-direction: column;
   height: 100vh;
   border-right: 1px solid #2d2d3f;
+  transition: width 0.25s ease-in-out; /* Soepele animatie */
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* In geklapte staat: smalle kolom van 60px */
+.sidebar.collapsed {
+  width: 60px;
 }
 
 .sidebar-header {
-  padding: 20px;
+  padding: 15px 20px;
   border-bottom: 1px solid #2d2d3f;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+  box-sizing: border-box;
+}
+
+.sidebar.collapsed .sidebar-header {
+  padding: 15px 10px;
+  justify-content: center;
 }
 
 .sidebar-header h2 {
   margin: 0;
   font-size: 1.1rem;
   color: #4fc3f7;
+  white-space: nowrap;
+}
+
+/* Inklap / uitklap knop in de header */
+.toggle-button {
+  background: transparent;
+  border: 1px solid #2d2d3f;
+  color: #a2a3b7;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.toggle-button:hover {
+  background-color: #2b2b40;
+  color: #ffffff;
 }
 
 .sidebar-nav {
@@ -29,7 +65,7 @@
 .nav-button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 12px 15px;
   background: transparent;
   border: none;
@@ -39,6 +75,12 @@
   cursor: pointer;
   text-align: left;
   transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sidebar.collapsed .nav-button {
+  justify-content: center;
+  padding: 12px 0;
 }
 
 .nav-button:hover {
@@ -50,4 +92,8 @@
   background-color: #007acc;
   color: #ffffff;
   font-weight: bold;
+}
+
+.nav-button .icon {
+  font-size: 1.1rem;
 }

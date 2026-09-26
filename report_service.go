@@ -1,13 +1,14 @@
 package main
 
 import (
-	"encoding/json"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
 	"time"
 )
+
 type TemplateFieldConfig struct {
 	Field    string `json:"field"`
 	Fallback string `json:"fallback,omitempty"`
@@ -29,9 +30,9 @@ type TOCConfig struct {
 
 // NumberingConfig bepaalt hoe niveaus of het gehele document genummerd worden
 type NumberingConfig struct {
-	Type          string `json:"type"`            // "decimal", "upper_alpha", "lower_alpha", "roman"
-	Separator     string `json:"separator"`       // bijv. "." of "-"
-	StopAtLevel   int    `json:"stop_at_level"`   // tot welk niveau nummeren
+	Type          string `json:"type"`           // "decimal", "upper_alpha", "lower_alpha", "roman"
+	Separator     string `json:"separator"`      // bijv. "." of "-"
+	StopAtLevel   int    `json:"stop_at_level"`  // tot welk niveau nummeren
 	InheritParent *bool  `json:"inherit_parent"` // nieuw: true = A.1, false = 1
 }
 
@@ -79,27 +80,27 @@ type ReportTemplateConfig struct {
 // --- DATABASE RECORD STRUCT ---
 
 type DbTemplateRecord struct {
-	ID         string  `json:"id"`
-	Label      string  `json:"label"`
+	ID          string  `json:"id"`
+	Label       string  `json:"label"`
 	Description *string `json:"description"` // *string i.v.m. null (optioneel)
-	Type       string  `json:"type"`
-	ConfigJSON *string `json:"config_json"`  // *string i.v.m. null (optioneel)
-	UpdatedAt  string  `json:"updated_at"`
-	DeletedAt  *string `json:"deleted_at"`  // *string i.v.m. null (optioneel)
+	Type        string  `json:"type"`
+	ConfigJSON  *string `json:"config_json"` // *string i.v.m. null (optioneel)
+	UpdatedAt   string  `json:"updated_at"`
+	DeletedAt   *string `json:"deleted_at"` // *string i.v.m. null (optioneel)
 }
 
 // ReportNode stelt een knoop in de rapportageboom voor
 type ReportNode struct {
-	ObjectID           string       `json:"objectId"`
-	Label              string       `json:"label"`
+	ObjectID           string         `json:"objectId"`
+	Label              string         `json:"label"`
 	ObjectTypeLabel    sql.NullString `json:"objectTypeLabel"`
 	ParamTitelID       sql.NullString `json:"paramTitelId"`
 	Titel              sql.NullString `json:"titel"`
 	ParamToelichtingID sql.NullString `json:"paramToelichtingId"`
 	Toelichting        sql.NullString `json:"toelichting"`
-	Numbering          string       `json:"numbering"`
-	Level              int          `json:"level"`
-	Children           []ReportNode `json:"children,omitempty"`
+	Numbering          string         `json:"numbering"`
+	Level              int            `json:"level"`
+	Children           []ReportNode   `json:"children,omitempty"`
 }
 
 // GenerateBookReport haalt data op en bouwt een interactieve HTML string  GenerateBookReport accepteert nu ook templateID
@@ -115,40 +116,62 @@ func (a *App) GenerateBookReport(rootID string, maxDepth int, templateID string)
 		}
 	}
 
-	// 2. Haal de boomstructuur op (aangepast met templateConfig als 5e argument)
-rootNode, err := a.fetchReportNodeRecursive(rootID, 1, maxDepth, "1", templateConfig)
-if err != nil {
-    return "", fmt.Errorf("fout bij ophalen rapportageboom: %w", err)
-}
+	// 2. Haal de boomstructuur op (start prefix is leeg "")
+	rootNode, err := a.fetchReportNodeRecursive(rootID, 1, maxDepth, "", templateConfig)
+	if err != nil {
+		return "", fmt.Errorf("fout bij ophalen rapportageboom: %w", err)
+	}
 	// 3. Genereer HTML & Inhoudsopgave
 	var htmlBuilder strings.Builder
 	var tocBuilder strings.Builder
 
-	tocBuilder.WriteString(`<nav class="report-toc"><h2>Inhoudsopgave</h2><ul>`)
-	a.buildReportHTML(rootNode, &htmlBuilder, &tocBuilder, templateConfig)
-	tocBuilder.WriteString(`</ul></nav><hr class="toc-divider" />`)
+	// Bepaal TOC-instellingen uit template (met veilige standaarden als config nil is)
+	tocEnabled := true
+	tocTitle := "Inhoudsopgave"
+	tocMaxDepth := maxDepth // fallback op de algemene maxDepth
+
+	if templateConfig != nil {
+		tocEnabled = templateConfig.GlobalSettings.TOC.Enabled
+		if templateConfig.GlobalSettings.TOC.Title != "" {
+			tocTitle = templateConfig.GlobalSettings.TOC.Title
+		}
+		if templateConfig.GlobalSettings.TOC.MaxDepth > 0 {
+			tocMaxDepth = templateConfig.GlobalSettings.TOC.MaxDepth
+		}
+	}
+
+	// Bouw alleen de TOC op als enabled == true
+	tocHTML := ""
+	if tocEnabled {
+		tocBuilder.WriteString(fmt.Sprintf(`<nav class="report-toc"><h2>%s</h2><ul>`, html.EscapeString(tocTitle)))
+		a.buildReportHTML(rootNode, &htmlBuilder, &tocBuilder, templateConfig, tocMaxDepth)
+		tocBuilder.WriteString(`</ul></nav><hr class="toc-divider" />`)
+		tocHTML = tocBuilder.String()
+	} else {
+		// Wel de body bouwen (zonder TOC)
+		a.buildReportHTML(rootNode, &htmlBuilder, nil, templateConfig, tocMaxDepth)
+	}
 
 	// 4. Bundel tot complete HTML document-body
 	finalHTML := fmt.Sprintf(`
-		<div class="book-report-wrapper template-%s">
-			<header class="book-header" data-object-id="%s">
-				<h1 class="book-main-title">%s</h1>
-				%s
-			</header>
-			%s
-			<main class="book-body">
-				%s
-			</main>
-		</div>
-	`, 
+    <div class="book-report-wrapper template-%s">
+        <header class="book-header" data-object-id="%s">
+            <h1 class="book-main-title">%s</h1>
+            %s
+        </header>
+        %s
+        <main class="book-body">
+            %s
+        </main>
+    </div>
+`,
 		templateID,
 		rootNode.ObjectID,
 		getDisplayTitle(rootNode),
 		getColophonHTML(rootNode),
-		tocBuilder.String(),
+		tocHTML, // Is nu leeg als enabled == false!
 		htmlBuilder.String(),
 	)
-
 	fmt.Printf("[PERFORMANCE] Rapportage (%s) gegenereerd in %v voor root: %s\n", templateID, time.Since(startTime), rootID)
 
 	return finalHTML, nil
@@ -168,7 +191,7 @@ func (a *App) fetchReportNodeRecursive(objectID string, currentDepth, maxDepth i
 		WHERE object_id = ?
 	`
 	err := a.db.QueryRow(query, objectID).Scan(
-		&node.Label, &node.ObjectTypeLabel, &node.ParamTitelID, 
+		&node.Label, &node.ObjectTypeLabel, &node.ParamTitelID,
 		&node.Titel, &node.ParamToelichtingID, &node.Toelichting,
 	)
 	if err != nil {
@@ -193,9 +216,14 @@ func (a *App) fetchReportNodeRecursive(objectID string, currentDepth, maxDepth i
 			for rows.Next() {
 				var childID string
 				if err := rows.Scan(&childID); err == nil {
-					
-					// Bepaal nummeringsstijl voor het volgende niveau
-					childPrefix := calculateChildPrefix(prefix, currentDepth, childIdx, config)
+
+					// REPARATIE:
+					// Het kind van een root-knoop zit op rapportniveau = currentDepth.
+					// Als currentDepth = 1 (root), dan is het kind op rapportniveau 1.
+					// Als currentDepth = 2 (hoofdstuk), dan is het kind op rapportniveau 2.
+					targetChildLevel := currentDepth
+
+					childPrefix := calculateChildPrefix(prefix, targetChildLevel, childIdx, config)
 
 					childNode, err := a.fetchReportNodeRecursive(childID, currentDepth+1, maxDepth, childPrefix, config)
 					if err == nil && childNode != nil {
@@ -205,38 +233,39 @@ func (a *App) fetchReportNodeRecursive(objectID string, currentDepth, maxDepth i
 				}
 			}
 		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("fout tijdens itereren van templates: %w", err)
+		}
 	}
 
 	return node, nil
 }
 
-func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *strings.Builder, config *ReportTemplateConfig) {
+func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *strings.Builder, config *ReportTemplateConfig, tocMaxDepth int) {
 	if node.Level > 1 {
+		ruleLevel := node.Level - 1
 		title := getDisplayTitle(node)
 		anchorID := fmt.Sprintf("node-%s", node.ObjectID)
 
-		// 1. Haal dynamische instellingen voor dit niveau op
-		headingTag, includeInTOC := getLevelRule(config, node.Level)
+		headingTag, includeInTOC := getLevelRule(config, ruleLevel)
 
-		// 2. Inhoudsopgave item (gebruikt nu include_in_toc uit het template)
-		if includeInTOC {
-			indentClass := fmt.Sprintf("toc-level-%d", node.Level-1)
+		// Inhoudsopgave item
+		if toc != nil && includeInTOC && ruleLevel <= tocMaxDepth {
+			indentClass := fmt.Sprintf("toc-level-%d", ruleLevel)
 			toc.WriteString(fmt.Sprintf(
 				`<li class="%s"><a href="#%s"><span class="toc-num">%s</span> %s</a></li>`,
 				indentClass, anchorID, node.Numbering, html.EscapeString(title),
 			))
 		}
 
-		// 3. HTML Sectie
-		body.WriteString(fmt.Sprintf(`<section id="%s" class="report-section level-%d" data-object-id="%s">`, anchorID, node.Level, node.ObjectID))
-		
-		// Koptekst met dynamische HTML-tag (h1, h2, h3, etc.)
+		// HTML Sectie (Harde punt na %s verwijderd)
+		body.WriteString(fmt.Sprintf(`<section id="%s" class="report-section level-%d" data-object-id="%s">`, anchorID, ruleLevel, node.ObjectID))
+
 		body.WriteString(fmt.Sprintf(
-			`<%s class="report-heading" data-object-id="%s"><span class="num">%s.</span> %s</%s>`,
+			`<%s class="report-heading" data-object-id="%s"><span class="num">%s</span> %s</%s>`,
 			headingTag, node.ObjectID, node.Numbering, html.EscapeString(title), headingTag,
 		))
 
-		// Toelichting
 		if node.Toelichting.Valid && strings.TrimSpace(node.Toelichting.String) != "" {
 			paramID := ""
 			if node.ParamToelichtingID.Valid {
@@ -252,7 +281,7 @@ func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *stri
 	}
 
 	for i := range node.Children {
-		a.buildReportHTML(&node.Children[i], body, toc, config)
+		a.buildReportHTML(&node.Children[i], body, toc, config, tocMaxDepth)
 	}
 }
 func getDisplayTitle(node *ReportNode) string {
@@ -277,7 +306,9 @@ func getColophonHTML(node *ReportNode) string {
 }
 
 func min(a, b int) int {
-	if a < b { return a }
+	if a < b {
+		return a
+	}
 	return b
 }
 
@@ -387,6 +418,7 @@ func (a *App) SaveTemplateRecord(template DbTemplateRecord) (*DbTemplateRecord, 
 	// 2. Geef het bijgewerkte record (inclusief het gegenereerde ID) terug
 	return &template, nil
 }
+
 // GetParsedTemplateById haalt het sjabloon op en decodeert de ConfigJSON direct naar ReportTemplateConfig
 func (a *App) GetParsedTemplateById(id string) (*ReportTemplateConfig, error) {
 	record, err := a.GetTemplateById(id)
@@ -438,6 +470,7 @@ func (a *App) SaveParsedTemplate(label string, description *string, config Repor
 
 	return nil
 }
+
 // GetTemplates haalt alle actieve sjablonen op (zonder deleted_at)
 func (a *App) GetTemplates() ([]DbTemplateRecord, error) {
 	if a.db == nil {
@@ -486,10 +519,14 @@ func (a *App) GetTemplates() ([]DbTemplateRecord, error) {
 		}
 
 		templates = append(templates, rec)
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("fout tijdens itereren van templates: %w", err)
+		}
 	}
 
 	return templates, nil
 }
+
 // getLevelRule zoekt de regel voor het specifieke niveau op uit het template,
 // of valt terug op een veilige standaard als het niveau niet gedefinieerd is.
 func getLevelRule(config *ReportTemplateConfig, level int) (tag string, includeInTOC bool) {
@@ -517,6 +554,7 @@ func getLevelRule(config *ReportTemplateConfig, level int) (tag string, includeI
 
 	return tag, includeInTOC
 }
+
 // formatNumberFormat zet een index (1-based) om naar het gewenste formaat
 func formatNumberFormat(index int, style string) string {
 	switch style {
@@ -547,54 +585,54 @@ func toRoman(num int) string {
 	return result.String()
 }
 
-func calculateChildPrefix(parentPrefix string, parentLevel, childIndex int, config *ReportTemplateConfig) string {
-	childLevel := parentLevel + 1
+func calculateChildPrefix(parentPrefix string, targetLevel, childIndex int, config *ReportTemplateConfig) string {
+    // childLevel := parentLevel + 1  <-- DEZE REGEL VERWIJDEREN!
+    childLevel := targetLevel
 
-	// Defaults volgens jouw specificaties:
-	// - Type: decimal (1, 2, 3)
-	// - Separator: .
-	// - InheritParent: true (1.1, A.1, etc.)
-	numType := "decimal"
-	separator := "."
-	inheritParent := true
+    // 1. Standaard veilige defaults
+    numType := "decimal"
+    separator := "."
+    inheritParent := true
 
-	// 1. Controleer of er een globale instelling is
-	if config != nil && config.GlobalSettings.Numbering.Type != "" {
-		numType = config.GlobalSettings.Numbering.Type
-		if config.GlobalSettings.Numbering.Separator != "" {
-			separator = config.GlobalSettings.Numbering.Separator
-		}
-		if config.GlobalSettings.Numbering.InheritParent != nil {
-			inheritParent = *config.GlobalSettings.Numbering.InheritParent
-		}
-	}
+    // 2. Haal ALTIJD eerst de globale instellingen op als basis
+    if config != nil {
+        if config.GlobalSettings.Numbering.Type != "" {
+            numType = config.GlobalSettings.Numbering.Type
+        }
+        if config.GlobalSettings.Numbering.Separator != "" {
+            separator = config.GlobalSettings.Numbering.Separator
+        }
+        if config.GlobalSettings.Numbering.InheritParent != nil {
+            inheritParent = *config.GlobalSettings.Numbering.InheritParent
+        }
+    }
 
-	// 2. Overschrijf eventueel met niveau-specifieke regel uit LevelRules (specifiek heeft voorrang!)
-	if config != nil {
-		for _, rule := range config.LevelRules {
-			if rule.Level == childLevel && rule.Numbering != nil {
-				if rule.Numbering.Type != "" {
-					numType = rule.Numbering.Type
-				}
-				if rule.Numbering.Separator != "" {
-					separator = rule.Numbering.Separator
-				}
-				if rule.Numbering.InheritParent != nil {
-					inheritParent = *rule.Numbering.InheritParent
-				}
-				break
-			}
-		}
-	}
+    // 3. Overschrijf SPECIFIEKE velden van de regel die hoort bij DIT specifieke niveau (childLevel/targetLevel)
+    if config != nil {
+        for _, rule := range config.LevelRules {
+            if rule.Level == childLevel && rule.Numbering != nil {
+                if rule.Numbering.Type != "" {
+                    numType = rule.Numbering.Type
+                }
+                if rule.Numbering.Separator != "" {
+                    separator = rule.Numbering.Separator
+                }
+                if rule.Numbering.InheritParent != nil {
+                    inheritParent = *rule.Numbering.InheritParent
+                }
+                break
+            }
+        }
+    }
 
-	// 3. Geformeerde index opbouwen (bijv. "1", "A", "I")
-	formattedIndex := formatNumberFormat(childIndex, numType)
+    // 4. Formatteer de huidige index
+    formattedIndex := formatNumberFormat(childIndex, numType)
 
-	// Als dit het eerste niveau is onder de root (niveau 1 heeft meestal geen parent prefix)
-	if parentLevel == 1 || parentPrefix == "" || !inheritParent {
-		return formattedIndex
-	}
+    // 5. Geen parent (Niveau 1), of overerving staat uit voor dit niveau
+    if parentPrefix == "" || !inheritParent {
+        return formattedIndex
+    }
 
-	// Bovenliggende nummering wel meenemen (default gedrag)
-	return fmt.Sprintf("%s%s%s", parentPrefix, separator, formattedIndex)
+    // 6. Plak parentPrefix aan formattedIndex met de separator die geldt voor DIT niveau
+    return fmt.Sprintf("%s%s%s", parentPrefix, separator, formattedIndex)
 }

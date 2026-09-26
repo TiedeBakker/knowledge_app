@@ -84,6 +84,7 @@ export namespace main {
 	    type: string;
 	    separator: string;
 	    stop_at_level: number;
+	    inherit_parent?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new NumberingConfig(source);
@@ -94,6 +95,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.separator = source["separator"];
 	        this.stop_at_level = source["stop_at_level"];
+	        this.inherit_parent = source["inherit_parent"];
 	    }
 	}
 	export class TOCConfig {
@@ -561,6 +563,7 @@ export namespace main {
 	    heading_tag?: string;
 	    page_break_before: boolean;
 	    include_in_toc: boolean;
+	    numbering?: NumberingConfig;
 	    filter?: TemplateFilter;
 	    fields: TemplateFieldConfig[];
 	
@@ -575,6 +578,7 @@ export namespace main {
 	        this.heading_tag = source["heading_tag"];
 	        this.page_break_before = source["page_break_before"];
 	        this.include_in_toc = source["include_in_toc"];
+	        this.numbering = this.convertValues(source["numbering"], NumberingConfig);
 	        this.filter = this.convertValues(source["filter"], TemplateFilter);
 	        this.fields = this.convertValues(source["fields"], TemplateFieldConfig);
 	    }

@@ -7,7 +7,7 @@
     "toc": {
       "enabled": true,
       "max_depth": 3,
-      "title": "Inhoudsopgave"
+      "title": "Inhoudsopgave 111"
     },
     "numbering": {
       "type": "decimal",

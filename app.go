@@ -1039,3 +1039,28 @@ func (a *App) SelectSavePath(defaultFilename string) (string, error) {
 	}
 	return filePath, nil
 }
+// GetObjectById haalt één specifiek object op aan de hand van zijn ID
+func (a *App) GetObjectById(id string) (*ObjectEntity, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	var o ObjectEntity
+	var validTo sql.NullString
+
+	query := `
+		SELECT id, label, is_confidential, valid_from, valid_to 
+		FROM objects 
+		WHERE id = ? AND deleted_at IS NULL`
+
+	err := a.db.QueryRow(query, id).Scan(&o.ID, &o.Label, &o.IsConfidential, &o.ValidFrom, &validTo)
+	if err != nil {
+		return nil, fmt.Errorf("object %s niet gevonden: %w", id, err)
+	}
+
+	if validTo.Valid {
+		o.ValidTo = &validTo.String
+	}
+
+	return &o, nil
+}

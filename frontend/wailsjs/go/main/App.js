@@ -46,6 +46,10 @@ export function GetGraphNetwork(arg1, arg2) {
   return window['go']['main']['App']['GetGraphNetwork'](arg1, arg2);
 }
 
+export function GetObjectById(arg1) {
+  return window['go']['main']['App']['GetObjectById'](arg1);
+}
+
 export function GetObjectTree(arg1, arg2) {
   return window['go']['main']['App']['GetObjectTree'](arg1, arg2);
 }

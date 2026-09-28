@@ -138,7 +138,8 @@ func wrapInFullHTMLDocument(bodyHTML string) string {
         .report-toc h2 { margin-top: 0; font-size: 1.2rem; }
         .report-toc ul { list-style: none; padding-left: 0; }
         .report-toc li { margin-bottom: 0.4rem; }
-        .report-toc a { text-decoration: none; color: #0056b3; }
+        .report-toc a,
+		.report-section-toc a { text-decoration: none; color: #0056b3; }
         
         .report-section { margin-bottom: 2rem; }
         .report-section.level-1 { page-break-before: always; }

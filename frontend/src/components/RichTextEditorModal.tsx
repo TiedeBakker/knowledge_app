@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
-import { 
-  Bold, Italic, List, ListOrdered, Heading1, Heading2, 
-  Quote, ImageIcon, X, Save 
+import {
+  Bold, Italic, List, ListOrdered, Heading1, Heading2,
+  Quote, ImageIcon, X, Save
 } from 'lucide-react';
 
 const CustomImage = Image.extend({
@@ -76,10 +76,10 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
 
   const addImage = () => {
     if (imageUrl && editor) {
-      editor.chain().focus().setImage({ 
-        src: imageUrl, 
+      editor.chain().focus().setImage({
+        src: imageUrl,
         // @ts-ignore custom attribute
-        'data-layout': imageLayout 
+        'data-layout': imageLayout
       }).run();
 
       setImageUrl('');
@@ -98,6 +98,16 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
     alignItems: 'center',
     justifyContent: 'center',
   });
+  const handleCloseWithConfirm = () => {
+    if (editor && editor.getHTML() !== (initialValue || '<p></p>')) {
+      const confirmSave = window.confirm('Er zijn niet-opgeslagen wijzigingen. Wilt u deze opslaan voordat u sluit?');
+      if (confirmSave) {
+        handleSave();
+        return;
+      }
+    }
+    onClose();
+  };
 
   return (
     <div style={{
@@ -127,7 +137,7 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
         color: '#1e293b',
         fontFamily: 'sans-serif'
       }}>
-        
+
         {/* Header */}
         <div style={{
           display: 'flex',
@@ -138,8 +148,8 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
           background: '#f8fafc'
         }}>
           <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: '#0f172a' }}>{title}</h3>
-          <button 
-            onClick={onClose}
+          <button
+            onClick={handleCloseWithConfirm}
             style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px' }}
           >
             <X size={20} />
@@ -326,7 +336,7 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
           background: '#f8fafc'
         }}>
           <button
-            onClick={onClose}
+            onClick={handleCloseWithConfirm}
             style={{
               padding: '6px 12px',
               background: '#ffffff',

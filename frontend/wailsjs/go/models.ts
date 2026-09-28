@@ -27,6 +27,7 @@ export namespace main {
 	export class TemplateFieldConfig {
 	    field: string;
 	    fallback?: string;
+	    fallback_text?: string;
 	    type: string;
 	    css_class?: string;
 	    role?: string;
@@ -39,6 +40,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.field = source["field"];
 	        this.fallback = source["fallback"];
+	        this.fallback_text = source["fallback_text"];
 	        this.type = source["type"];
 	        this.css_class = source["css_class"];
 	        this.role = source["role"];
@@ -564,6 +566,7 @@ export namespace main {
 	    page_break_before: boolean;
 	    include_in_toc: boolean;
 	    numbering?: NumberingConfig;
+	    toc?: TOCConfig;
 	    filter?: TemplateFilter;
 	    fields: TemplateFieldConfig[];
 	
@@ -579,6 +582,7 @@ export namespace main {
 	        this.page_break_before = source["page_break_before"];
 	        this.include_in_toc = source["include_in_toc"];
 	        this.numbering = this.convertValues(source["numbering"], NumberingConfig);
+	        this.toc = this.convertValues(source["toc"], TOCConfig);
 	        this.filter = this.convertValues(source["filter"], TemplateFilter);
 	        this.fields = this.convertValues(source["fields"], TemplateFieldConfig);
 	    }
@@ -643,6 +647,7 @@ export namespace main {
 	    type: string;
 	    version: number;
 	    global_settings: GlobalSettings;
+	    source_view?: string;
 	    root_level: RootLevelConfig;
 	    level_rules: TemplateLevelRule[];
 	    default_fallback_rule: DefaultFallbackRule;
@@ -658,6 +663,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.version = source["version"];
 	        this.global_settings = this.convertValues(source["global_settings"], GlobalSettings);
+	        this.source_view = source["source_view"];
 	        this.root_level = this.convertValues(source["root_level"], RootLevelConfig);
 	        this.level_rules = this.convertValues(source["level_rules"], TemplateLevelRule);
 	        this.default_fallback_rule = this.convertValues(source["default_fallback_rule"], DefaultFallbackRule);

@@ -7,16 +7,17 @@ import (
 	"html"
 	"strings"
 	"time"
+	"regexp"
 )
 
 type TemplateFieldConfig struct {
-	Field    string `json:"field"`
-	Fallback string `json:"fallback,omitempty"`
-	Type     string `json:"type"` // 'heading' | 'rich_text' | 'text' | 'inline_bold' | string
-	CSSClass string `json:"css_class,omitempty"`
-	Role     string `json:"role,omitempty"`
+	Field        string `json:"field"`
+	Fallback     string `json:"fallback,omitempty"`
+	FallbackText string `json:"fallback_text,omitempty"` // Nieuw: statische terugvaltekst
+	Type         string `json:"type"`                  // 'rich_text' | 'text' | 'inline_bold'
+	CSSClass     string `json:"css_class,omitempty"`
+	Role         string `json:"role,omitempty"`
 }
-
 type TemplateFilter struct {
 	AllowedObjectTypes  []string `json:"allowed_object_types,omitempty"`
 	ExcludedObjectTypes []string `json:"excluded_object_types,omitempty"`
@@ -43,7 +44,8 @@ type TemplateLevelRule struct {
 	HeadingTag      *string               `json:"heading_tag"`
 	PageBreakBefore bool                  `json:"page_break_before"`
 	IncludeInTOC    bool                  `json:"include_in_toc"`
-	Numbering       *NumberingConfig      `json:"numbering,omitempty"` // <-- NIEUW: Optioneel per niveau
+	Numbering       *NumberingConfig      `json:"numbering,omitempty"`
+	TOC             *TOCConfig            `json:"toc,omitempty"` // <-- NIEUW: Optioneel per niveau
 	Filter          *TemplateFilter       `json:"filter,omitempty"`
 	Fields          []TemplateFieldConfig `json:"fields"`
 }
@@ -72,6 +74,7 @@ type ReportTemplateConfig struct {
 	Type                string              `json:"type"` // 'book' | 'table' | 'list' | string
 	Version             int                 `json:"version"`
 	GlobalSettings      GlobalSettings      `json:"global_settings"`
+	SourceView          string              `json:"source_view,omitempty"`
 	RootLevel           RootLevelConfig     `json:"root_level"`
 	LevelRules          []TemplateLevelRule `json:"level_rules"`
 	DefaultFallbackRule DefaultFallbackRule `json:"default_fallback_rule"`
@@ -91,16 +94,13 @@ type DbTemplateRecord struct {
 
 // ReportNode stelt een knoop in de rapportageboom voor
 type ReportNode struct {
-	ObjectID           string         `json:"objectId"`
-	Label              string         `json:"label"`
-	ObjectTypeLabel    sql.NullString `json:"objectTypeLabel"`
-	ParamTitelID       sql.NullString `json:"paramTitelId"`
-	Titel              sql.NullString `json:"titel"`
-	ParamToelichtingID sql.NullString `json:"paramToelichtingId"`
-	Toelichting        sql.NullString `json:"toelichting"`
-	Numbering          string         `json:"numbering"`
-	Level              int            `json:"level"`
-	Children           []ReportNode   `json:"children,omitempty"`
+	ObjectID  string            `json:"objectId"`
+	Label     string            `json:"label"`
+	Numbering string            `json:"numbering"`
+	Level     int               `json:"level"`
+	FieldData map[string]string `json:"fieldData"` // Optie A: Alle veldwaarden (titel, toelichting, samenvatting, etc.)
+	ParamIDs  map[string]string `json:"paramIds"`  // Optie A: Bijbehorende param_value_id's voor editing
+	Children  []ReportNode      `json:"children,omitempty"`
 }
 
 // GenerateBookReport haalt data op en bouwt een interactieve HTML string  GenerateBookReport accepteert nu ook templateID
@@ -176,29 +176,159 @@ func (a *App) GenerateBookReport(rootID string, maxDepth int, templateID string)
 
 	return finalHTML, nil
 }
+// resolveFieldValue zoekt de waarde en paramID op volgens de ingestelde fallback-keten
+func resolveFieldValue(node *ReportNode, fieldCfg TemplateFieldConfig) (val string, paramID string) {
+	if node.FieldData == nil {
+		return "", ""
+	}
+
+	// 1. Probeer het primaire DB-veld
+	if content, exists := node.FieldData[fieldCfg.Field]; exists && strings.TrimSpace(content) != "" {
+		return content, node.ParamIDs[fieldCfg.Field]
+	}
+
+	// 2. Probeer het fallback DB-veld (indien opgegeven)
+	if fieldCfg.Fallback != "" {
+		if content, exists := node.FieldData[fieldCfg.Fallback]; exists && strings.TrimSpace(content) != "" {
+			return content, node.ParamIDs[fieldCfg.Fallback]
+		}
+	}
+
+	// 3. Valt terug op de statische fallback-tekst uit de template JSON
+	if fieldCfg.FallbackText != "" {
+		return fieldCfg.FallbackText, ""
+	}
+
+	// 4. Anders niks renderen
+	return "", ""
+}
+
+// getLevelFields haalt de geselecteerde fields op voor een specifiek niveau uit de template config
+func getLevelFields(config *ReportTemplateConfig, level int) []TemplateFieldConfig {
+	if config != nil {
+		for _, rule := range config.LevelRules {
+			if rule.Level == level && len(rule.Fields) > 0 {
+				return rule.Fields
+			}
+		}
+	}
+	// Standaard fallback als er geen fields zijn gedefinieerd in het sjabloon
+	return []TemplateFieldConfig{
+		{Field: "toelichting", Type: "rich_text"},
+	}
+}
+
 func (a *App) fetchReportNodeRecursive(objectID string, currentDepth, maxDepth int, prefix string, config *ReportTemplateConfig) (*ReportNode, error) {
 	node := &ReportNode{
 		ObjectID:  objectID,
 		Level:     currentDepth,
 		Numbering: prefix,
+		FieldData: make(map[string]string),
+		ParamIDs:  make(map[string]string),
 	}
 
-	// 1. Lees object uit de view
-	query := `
+	// 1. Bepaal de viewnaam met fallback op "v_objecten_met_details"
+	viewName := "v_objecten_met_details"
+	if config != nil && strings.TrimSpace(config.SourceView) != "" {
+		viewName = strings.TrimSpace(config.SourceView)
+	}
+
+	// Veiligheidscheck: zorg dat de viewnaam alleen toegestane tekens bevat (a-z, A-Z, 0-9, _)
+	matched, _ := regexp.MatchString(`^[a-zA-Z0-9_]+$`, viewName)
+	if !matched {
+		return nil, fmt.Errorf("ongeldige viewnaam in sjabloongegevens: %s", viewName)
+	}
+
+	// 2. Bouw de dynamische query op
+	query := fmt.Sprintf(`
 		SELECT 
-			label, object_type_label, param_titel_id, titel, param_toelichting_id, toelichting 
-		FROM v_objecten_met_details 
+			label, 
+			object_type_label, 
+			param_titel_id, 
+			titel, 
+			param_toelichting_id, 
+			toelichting,
+			param_tekst_id,
+			tekst,
+			param_samenvatting_id,
+			samenvatting,
+			param_conclusie_id,
+			conclusie,
+			param_notities_id,
+			notities
+		FROM %s 
 		WHERE object_id = ?
-	`
+	`, viewName)
+
+	var label, objectTypeLabel sql.NullString
+	var paramTitelID, titel sql.NullString
+	var paramToelichtingID, toelichting sql.NullString
+	var paramTekstID, tekst sql.NullString
+	var paramSamenvattingID, samenvatting sql.NullString
+	var paramConclusieID, conclusie sql.NullString
+	var paramNotitiesID, notities sql.NullString
+
 	err := a.db.QueryRow(query, objectID).Scan(
-		&node.Label, &node.ObjectTypeLabel, &node.ParamTitelID,
-		&node.Titel, &node.ParamToelichtingID, &node.Toelichting,
+		&label, &objectTypeLabel,
+		&paramTitelID, &titel,
+		&paramToelichtingID, &toelichting,
+		&paramTekstID, &tekst,
+		&paramSamenvattingID, &samenvatting,
+		&paramConclusieID, &conclusie,
+		&paramNotitiesID, &notities,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fout bij ophalen details uit %s voor object %s: %w", viewName, objectID, err)
 	}
 
-	// 2. Haal kinderen op als maxDepth nog niet is bereikt
+	if label.Valid {
+		node.Label = label.String
+	}
+
+	// FieldData en ParamIDs mappen vullen
+	if titel.Valid {
+		node.FieldData["titel"] = titel.String
+	}
+	if paramTitelID.Valid {
+		node.ParamIDs["titel"] = paramTitelID.String
+	}
+
+	if toelichting.Valid {
+		node.FieldData["toelichting"] = toelichting.String
+	}
+	if paramToelichtingID.Valid {
+		node.ParamIDs["toelichting"] = paramToelichtingID.String
+	}
+
+	if tekst.Valid {
+		node.FieldData["tekst"] = tekst.String
+	}
+	if paramTekstID.Valid {
+		node.ParamIDs["tekst"] = paramTekstID.String
+	}
+
+	if samenvatting.Valid {
+		node.FieldData["samenvatting"] = samenvatting.String
+	}
+	if paramSamenvattingID.Valid {
+		node.ParamIDs["samenvatting"] = paramSamenvattingID.String
+	}
+
+	if conclusie.Valid {
+		node.FieldData["conclusie"] = conclusie.String
+	}
+	if paramConclusieID.Valid {
+		node.ParamIDs["conclusie"] = paramConclusieID.String
+	}
+
+	if notities.Valid {
+		node.FieldData["notities"] = notities.String
+	}
+	if paramNotitiesID.Valid {
+		node.ParamIDs["notities"] = paramNotitiesID.String
+	}
+
+	// 3. Haal kinderen op als maxDepth nog niet is bereikt
 	if currentDepth < maxDepth {
 		rows, err := a.db.Query(`
 			SELECT rv.target_id 
@@ -216,13 +346,7 @@ func (a *App) fetchReportNodeRecursive(objectID string, currentDepth, maxDepth i
 			for rows.Next() {
 				var childID string
 				if err := rows.Scan(&childID); err == nil {
-
-					// REPARATIE:
-					// Het kind van een root-knoop zit op rapportniveau = currentDepth.
-					// Als currentDepth = 1 (root), dan is het kind op rapportniveau 1.
-					// Als currentDepth = 2 (hoofdstuk), dan is het kind op rapportniveau 2.
 					targetChildLevel := currentDepth
-
 					childPrefix := calculateChildPrefix(prefix, targetChildLevel, childIdx, config)
 
 					childNode, err := a.fetchReportNodeRecursive(childID, currentDepth+1, maxDepth, childPrefix, config)
@@ -232,15 +356,14 @@ func (a *App) fetchReportNodeRecursive(objectID string, currentDepth, maxDepth i
 					}
 				}
 			}
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("fout tijdens itereren van templates: %w", err)
+			if err := rows.Err(); err != nil {
+				return nil, fmt.Errorf("fout tijdens itereren van kinderen: %w", err)
+			}
 		}
 	}
 
 	return node, nil
 }
-
 func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *strings.Builder, config *ReportTemplateConfig, tocMaxDepth int) {
 	if node.Level > 1 {
 		ruleLevel := node.Level - 1
@@ -249,7 +372,7 @@ func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *stri
 
 		headingTag, includeInTOC := getLevelRule(config, ruleLevel)
 
-		// Inhoudsopgave item
+		// 1. Globale Inhoudsopgave item toevoegen
 		if toc != nil && includeInTOC && ruleLevel <= tocMaxDepth {
 			indentClass := fmt.Sprintf("toc-level-%d", ruleLevel)
 			toc.WriteString(fmt.Sprintf(
@@ -258,23 +381,58 @@ func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *stri
 			))
 		}
 
-		// HTML Sectie (Harde punt na %s verwijderd)
+		// 2. HTML Sectie openen
 		body.WriteString(fmt.Sprintf(`<section id="%s" class="report-section level-%d" data-object-id="%s">`, anchorID, ruleLevel, node.ObjectID))
 
+		// Heading
 		body.WriteString(fmt.Sprintf(
 			`<%s class="report-heading" data-object-id="%s"><span class="num">%s</span> %s</%s>`,
 			headingTag, node.ObjectID, node.Numbering, html.EscapeString(title), headingTag,
 		))
 
-		if node.Toelichting.Valid && strings.TrimSpace(node.Toelichting.String) != "" {
-			paramID := ""
-			if node.ParamToelichtingID.Valid {
-				paramID = node.ParamToelichtingID.String
+		// 3. LOKALE / SECTIE TOC RENDERING
+		if localTOCCfg := getLevelTOCConfig(config, ruleLevel); localTOCCfg != nil {
+			localTOChtml := renderLocalTOC(node, localTOCCfg, config)
+			if localTOChtml != "" {
+				body.WriteString(localTOChtml)
 			}
-			body.WriteString(fmt.Sprintf(
-				`<div class="editable-richtext" data-param-value-id="%s" data-object-id="%s" data-field="toelichting">%s</div>`,
-				paramID, node.ObjectID, node.Toelichting.String,
-			))
+		}
+
+		// 4. DYNAMISCHE VELDEN RENDERING (Optie C)
+		fields := getLevelFields(config, ruleLevel)
+		for _, fieldCfg := range fields {
+			content, paramID := resolveFieldValue(node, fieldCfg)
+			if content == "" {
+				continue // Leeg of geen match: niks renderen
+			}
+
+			cssClass := "report-field"
+			if fieldCfg.CSSClass != "" {
+				cssClass += " " + fieldCfg.CSSClass
+			}
+
+			switch fieldCfg.Type {
+			case "rich_text":
+				body.WriteString(fmt.Sprintf(
+					`<div class="editable-richtext %s" data-param-value-id="%s" data-object-id="%s" data-field="%s">%s</div>`,
+					cssClass, paramID, node.ObjectID, fieldCfg.Field, content,
+				))
+			case "text":
+				body.WriteString(fmt.Sprintf(
+					`<p class="%s">%s</p>`,
+					cssClass, html.EscapeString(content),
+				))
+			case "inline_bold":
+				body.WriteString(fmt.Sprintf(
+					`<strong class="%s">%s</strong>`,
+					cssClass, html.EscapeString(content),
+				))
+			default:
+				body.WriteString(fmt.Sprintf(
+					`<div class="%s">%s</div>`,
+					cssClass, content,
+				))
+			}
 		}
 
 		body.WriteString(`</section>`)
@@ -284,27 +442,24 @@ func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *stri
 		a.buildReportHTML(&node.Children[i], body, toc, config, tocMaxDepth)
 	}
 }
+
 func getDisplayTitle(node *ReportNode) string {
-	if node.Titel.Valid && strings.TrimSpace(node.Titel.String) != "" {
-		return node.Titel.String
+	if val, exists := node.FieldData["titel"]; exists && strings.TrimSpace(val) != "" {
+		return val
 	}
 	return node.Label
 }
 
 func getColophonHTML(node *ReportNode) string {
-	if node.Toelichting.Valid && strings.TrimSpace(node.Toelichting.String) != "" {
-		paramID := ""
-		if node.ParamToelichtingID.Valid {
-			paramID = node.ParamToelichtingID.String
-		}
+	if val, exists := node.FieldData["toelichting"]; exists && strings.TrimSpace(val) != "" {
+		paramID := node.ParamIDs["toelichting"]
 		return fmt.Sprintf(
 			`<div class="book-colophon editable-richtext" data-param-value-id="%s" data-object-id="%s" data-field="toelichting">%s</div>`,
-			paramID, node.ObjectID, node.Toelichting.String,
+			paramID, node.ObjectID, val,
 		)
 	}
 	return ""
 }
-
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -586,53 +741,121 @@ func toRoman(num int) string {
 }
 
 func calculateChildPrefix(parentPrefix string, targetLevel, childIndex int, config *ReportTemplateConfig) string {
-    // childLevel := parentLevel + 1  <-- DEZE REGEL VERWIJDEREN!
-    childLevel := targetLevel
+	// childLevel := parentLevel + 1  <-- DEZE REGEL VERWIJDEREN!
+	childLevel := targetLevel
 
-    // 1. Standaard veilige defaults
-    numType := "decimal"
-    separator := "."
-    inheritParent := true
+	// 1. Standaard veilige defaults
+	numType := "decimal"
+	separator := "."
+	inheritParent := true
 
-    // 2. Haal ALTIJD eerst de globale instellingen op als basis
-    if config != nil {
-        if config.GlobalSettings.Numbering.Type != "" {
-            numType = config.GlobalSettings.Numbering.Type
-        }
-        if config.GlobalSettings.Numbering.Separator != "" {
-            separator = config.GlobalSettings.Numbering.Separator
-        }
-        if config.GlobalSettings.Numbering.InheritParent != nil {
-            inheritParent = *config.GlobalSettings.Numbering.InheritParent
-        }
-    }
+	// 2. Haal ALTIJD eerst de globale instellingen op als basis
+	if config != nil {
+		if config.GlobalSettings.Numbering.Type != "" {
+			numType = config.GlobalSettings.Numbering.Type
+		}
+		if config.GlobalSettings.Numbering.Separator != "" {
+			separator = config.GlobalSettings.Numbering.Separator
+		}
+		if config.GlobalSettings.Numbering.InheritParent != nil {
+			inheritParent = *config.GlobalSettings.Numbering.InheritParent
+		}
+	}
 
-    // 3. Overschrijf SPECIFIEKE velden van de regel die hoort bij DIT specifieke niveau (childLevel/targetLevel)
-    if config != nil {
-        for _, rule := range config.LevelRules {
-            if rule.Level == childLevel && rule.Numbering != nil {
-                if rule.Numbering.Type != "" {
-                    numType = rule.Numbering.Type
-                }
-                if rule.Numbering.Separator != "" {
-                    separator = rule.Numbering.Separator
-                }
-                if rule.Numbering.InheritParent != nil {
-                    inheritParent = *rule.Numbering.InheritParent
-                }
-                break
-            }
-        }
-    }
+	// 3. Overschrijf SPECIFIEKE velden van de regel die hoort bij DIT specifieke niveau (childLevel/targetLevel)
+	if config != nil {
+		for _, rule := range config.LevelRules {
+			if rule.Level == childLevel && rule.Numbering != nil {
+				if rule.Numbering.Type != "" {
+					numType = rule.Numbering.Type
+				}
+				if rule.Numbering.Separator != "" {
+					separator = rule.Numbering.Separator
+				}
+				if rule.Numbering.InheritParent != nil {
+					inheritParent = *rule.Numbering.InheritParent
+				}
+				break
+			}
+		}
+	}
 
-    // 4. Formatteer de huidige index
-    formattedIndex := formatNumberFormat(childIndex, numType)
+	// 4. Formatteer de huidige index
+	formattedIndex := formatNumberFormat(childIndex, numType)
 
-    // 5. Geen parent (Niveau 1), of overerving staat uit voor dit niveau
-    if parentPrefix == "" || !inheritParent {
-        return formattedIndex
-    }
+	// 5. Geen parent (Niveau 1), of overerving staat uit voor dit niveau
+	if parentPrefix == "" || !inheritParent {
+		return formattedIndex
+	}
 
-    // 6. Plak parentPrefix aan formattedIndex met de separator die geldt voor DIT niveau
-    return fmt.Sprintf("%s%s%s", parentPrefix, separator, formattedIndex)
+	// 6. Plak parentPrefix aan formattedIndex met de separator die geldt voor DIT niveau
+	return fmt.Sprintf("%s%s%s", parentPrefix, separator, formattedIndex)
+}
+
+// getLevelTOCConfig zoekt de eventuele TOC-configuratie op voor een specifiek niveau
+func getLevelTOCConfig(config *ReportTemplateConfig, level int) *TOCConfig {
+	if config == nil {
+		return nil
+	}
+	for _, rule := range config.LevelRules {
+		if rule.Level == level && rule.TOC != nil {
+			return rule.TOC
+		}
+	}
+	return nil
+}
+
+// buildSubTOCBuilder bouwt een recursieve <ul>/<li> structuur voor de kinderen van een specifieke node
+func buildSubTOCBuilder(node *ReportNode, builder *strings.Builder, currentRelDepth, maxRelDepth int, config *ReportTemplateConfig) {
+	if currentRelDepth > maxRelDepth || len(node.Children) == 0 {
+		return
+	}
+
+	builder.WriteString(`<ul>`)
+	for i := range node.Children {
+		child := &node.Children[i]
+		childRuleLevel := child.Level - 1
+		_, includeInTOC := getLevelRule(config, childRuleLevel)
+
+		if includeInTOC {
+			anchorID := fmt.Sprintf("node-%s", child.ObjectID)
+			title := getDisplayTitle(child)
+			indentClass := fmt.Sprintf("toc-sub-level-%d", currentRelDepth)
+
+			builder.WriteString(fmt.Sprintf(
+				`<li class="%s"><a href="#%s"><span class="toc-num">%s</span> %s</a>`,
+				indentClass, anchorID, child.Numbering, html.EscapeString(title),
+			))
+
+			// Eventuele diepere sub-kinderen verwerken
+			buildSubTOCBuilder(child, builder, currentRelDepth+1, maxRelDepth, config)
+
+			builder.WriteString(`</li>`)
+		}
+	}
+	builder.WriteString(`</ul>`)
+}
+
+// generateLocalTOC HTML helper
+func renderLocalTOC(node *ReportNode, tocCfg *TOCConfig, config *ReportTemplateConfig) string {
+	if tocCfg == nil || !tocCfg.Enabled || len(node.Children) == 0 {
+		return ""
+	}
+
+	title := "Inhoud"
+	if tocCfg.Title != "" {
+		title = tocCfg.Title
+	}
+
+	maxDepth := 2 // Standaard relatieve diepte als deze niet is opgegeven
+	if tocCfg.MaxDepth > 0 {
+		maxDepth = tocCfg.MaxDepth
+	}
+
+	var subTocBuilder strings.Builder
+	subTocBuilder.WriteString(fmt.Sprintf(`<nav class="report-section-toc"><h3>%s</h3>`, html.EscapeString(title)))
+	buildSubTOCBuilder(node, &subTocBuilder, 1, maxDepth, config)
+	subTocBuilder.WriteString(`</nav>`)
+
+	return subTocBuilder.String()
 }

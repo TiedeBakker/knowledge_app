@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ResizableSplitPane } from '../../components/layout/ResizableSplitPane';
 import { NodeSearchSelector } from './components/NodeSearchSelector';
 import { TreeView } from './components/TreeView';
@@ -15,6 +15,7 @@ import {
 } from './services/baseModuleService';
 
 import { TemplateEditorModal } from './components/TemplateEditorModal';
+import { RichTextEditorModal } from '../../../../frontend/src/components/RichTextEditorModal';
 import { DbTemplateRecord } from './types/template.types';
 import {
   fetchTemplateById,
@@ -23,11 +24,16 @@ import {
 } from './services/baseModuleService';
 
 
+// Backend / App API import
+import { NodeEditorModal } from '../../components/NodeEditorModal'; 
+import { GetObjectById, SaveParameterValue } from '../../../../frontend/wailsjs/go/main/App';
+import { main } from '../../../../frontend/wailsjs/go/models';
+
 export const BaseModule: React.FC = () => {
   const [config, setConfig] = useState<BaseModuleConfig>({
     rootObjectId: null,
     maxDepth: 3,
-    templateId: '', // Standby tot templates zijn geladen uit SQLite
+    templateId: '',
   });
 
   const [availableObjects, setAvailableObjects] = useState<BaseObjectDto[]>([]);
@@ -41,10 +47,22 @@ export const BaseModule: React.FC = () => {
   const [isLoadingReport, setIsLoadingReport] = useState<boolean>(false);
 
   const [isExporting, setIsExporting] = useState<boolean>(false);
-  
-  // Modal state
+
+  // Template Modal State
   const [isTemplateEditorOpen, setIsTemplateEditorOpen] = useState<boolean>(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+
+  // RichText Editor Modal State vanuit Rapport Preview
+  const [isRichTextModalOpen, setIsRichTextModalOpen] = useState<boolean>(false);
+  const [activeParamValue, setActiveParamValue] = useState<{
+    id: string;
+    objectId: string;
+    content: string;
+  } | null>(null);
+
+  // Ref om scrollpositie van de rapport preview vast te houden
+  const rightPaneRef = useRef<HTMLDivElement | null>(null);
+  const scrollPositionRef = useRef<number>(0);
 
   // 1. Haal alle objecten én sjablonen op bij de start
   useEffect(() => {
@@ -65,7 +83,6 @@ export const BaseModule: React.FC = () => {
         setAvailableTemplates(safeTemplates);
         setIsLoadingTemplates(false);
 
-        // Als er sjablonen zijn, selecteer de eerste
         if (safeTemplates.length > 0) {
           setConfig((prev) => ({ ...prev, templateId: safeTemplates[0].id }));
         }
@@ -99,34 +116,41 @@ export const BaseModule: React.FC = () => {
     };
   }, [config.rootObjectId, config.maxDepth]);
 
-  // 3. Haal de rapportage HTML op zodra rootObjectId, maxDepth of templateId verandert
-  useEffect(() => {
+  // Helper functie om het rapport op te halen en de scroll-positie te herstellen
+  const reloadReportPreview = async (preserveScroll = true) => {
     if (!config.rootObjectId || !config.templateId) {
       setReportHtml('');
       return;
     }
 
-    let isMounted = true;
+    if (preserveScroll && rightPaneRef.current) {
+      scrollPositionRef.current = rightPaneRef.current.scrollTop;
+    }
+
     setIsLoadingReport(true);
+    try {
+      const html = await fetchReportPreview(config.rootObjectId, config.maxDepth, config.templateId);
+      setReportHtml(html || '');
+    } catch (err) {
+      console.error('Fout bij ophalen rapport-preview:', err);
+      setReportHtml('<p style="color:red; padding: 16px;">Fout bij genereren rapportage.</p>');
+    } finally {
+      setIsLoadingReport(false);
 
-    fetchReportPreview(config.rootObjectId, config.maxDepth, config.templateId)
-      .then((html) => {
-        if (isMounted) {
-          setReportHtml(html || '');
-          setIsLoadingReport(false);
-        }
-      })
-      .catch((err) => {
-        console.error('Fout bij ophalen rapport-preview:', err);
-        if (isMounted) {
-          setReportHtml('<p style="color:red; padding: 16px;">Fout bij genereren rapportage.</p>');
-          setIsLoadingReport(false);
-        }
-      });
+      // Herstel de scroll-positie op de DOM na re-render
+      if (preserveScroll && rightPaneRef.current) {
+        requestAnimationFrame(() => {
+          if (rightPaneRef.current) {
+            rightPaneRef.current.scrollTop = scrollPositionRef.current;
+          }
+        });
+      }
+    }
+  };
 
-    return () => {
-      isMounted = false;
-    };
+  // 3. Haal de rapportage HTML op zodra rootObjectId, maxDepth of templateId verandert
+  useEffect(() => {
+    reloadReportPreview(false);
   }, [config.rootObjectId, config.maxDepth, config.templateId]);
 
   const handleConfigChange = <K extends keyof BaseModuleConfig>(
@@ -136,16 +160,44 @@ export const BaseModule: React.FC = () => {
     setConfig((prev: BaseModuleConfig) => ({ ...prev, [key]: value }));
   };
 
-  const handleOpenEditor = (node: GraphNode) => {
-    alert(`Modale editor openen voor: ${node.label} (ID: ${node.id})`);
-  };
-
-  const handleOpenObjectEditorFromReport = (objectId: string) => {
-    alert(`Modale Object Editor openen voor object ID: ${objectId}`);
-  };
-
+  // AFHANDELING DUBBELKLIK OP RICHTEXT IN PREVIEW
   const handleOpenRichTextEditorFromReport = (paramValueId: string, objectId: string) => {
-    alert(`Modale RichText Editor openen voor ParameterValue ID: ${paramValueId} (Object: ${objectId})`);
+    // Haal de bestaande HTML-inhoud op uit de DOM-elementen van de preview
+    const clickedElement = document.querySelector(`[data-param-value-id="${paramValueId}"]`);
+    const existingContent = clickedElement ? clickedElement.innerHTML : '';
+
+    setActiveParamValue({
+      id: paramValueId,
+      objectId: objectId,
+      content: existingContent,
+    });
+    setIsRichTextModalOpen(true);
+  };
+
+  // OPSLAAN VAN BEWERKTE RICHTEXT
+  const handleSaveRichText = async (newContent: string) => {
+    if (!activeParamValue) return;
+
+    try {
+      // Bewaar het bijgewerkte record in SQLite via Wails App binding
+      await SaveParameterValue(
+        new main.ParameterValueEntity({
+          id: activeParamValue.id,
+          targetId: activeParamValue.objectId,
+          value: newContent,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      setIsRichTextModalOpen(false);
+      setActiveParamValue(null);
+
+      // Rapport verversen met behoud van scroll-positie
+      await reloadReportPreview(true);
+    } catch (err) {
+      console.error('Fout bij opslaan parameterwaarde uit rapport:', err);
+      alert(`Er is een fout opgetreden bij het opslaan: ${err}`);
+    }
   };
 
   const handleExportHTML = async () => {
@@ -181,29 +233,64 @@ export const BaseModule: React.FC = () => {
   };
 
   const handleOpenNewTemplate = () => {
-    setEditingTemplateId(null); // Geen ID meegeven = nieuw sjabloon aanmaken
+    setEditingTemplateId(null);
     setIsTemplateEditorOpen(true);
   };
 
-const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
-  try {
-    // Aanroep van de geëxporteerde service-functie met kleine 's'
-    const savedRecord = await saveTemplate(templateData);
+  const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
+    try {
+      const savedRecord = await saveTemplate(templateData);
 
-    if (savedRecord && savedRecord.id) {
-      setEditingTemplateId(savedRecord.id);
-      setConfig((prev) => ({ ...prev, templateId: savedRecord.id }));
+      if (savedRecord && savedRecord.id) {
+        setEditingTemplateId(savedRecord.id);
+        setConfig((prev) => ({ ...prev, templateId: savedRecord.id }));
+      }
+
+      const templates = await fetchTemplates();
+      setAvailableTemplates(templates || []);
+
+      setIsTemplateEditorOpen(false);
+    } catch (error) {
+      console.error('Fout bij opslaan van sjabloon:', error);
     }
+  };
 
-    // Herlaad de lijst met sjablonen
-    const templates = await fetchTemplates();
-    setAvailableTemplates(templates || []);
+  // NodeEditorModal State
+  const [selectedObjectForEdit, setSelectedObjectForEdit] = useState<main.ObjectEntity | null>(null);
+  const [isNodeEditorOpen, setIsNodeEditorOpen] = useState<boolean>(false);
 
-    setIsTemplateEditorOpen(false);
-  } catch (error) {
-    console.error("Fout bij opslaan van sjabloon:", error);
-  }
-};
+  // Universele functie om de NodeEditorModal te openen op basis van objectId
+  const openObjectEditorById = async (objectId: string) => {
+    try {
+      const obj = await GetObjectById(objectId);
+      if (obj) {
+        setSelectedObjectForEdit(obj);
+        setIsNodeEditorOpen(true);
+      }
+    } catch (err) {
+      console.error(`Fout bij ophalen object met ID ${objectId}:`, err);
+      alert(`Fout bij ophalen object details: ${err}`);
+    }
+  };
+
+  const handleOpenEditor = (node: GraphNode) => {
+    openObjectEditorById(node.id);
+  };
+
+  const handleOpenObjectEditorFromReport = (objectId: string) => {
+    openObjectEditorById(objectId);
+  };
+
+  const handleNodeEditorSave = async (_updatedNode: main.ObjectEntity) => {
+    // Ververs de boomstructuur als het geselecteerde/gewijzigde object onderdeel is van de weergave
+    if (config.rootObjectId) {
+      const refreshedTree = await fetchObjectTree(config.rootObjectId, config.maxDepth);
+      setTreeData(refreshedTree);
+    }
+    // Ververs het rapport met behoud van scrollpositie
+    await reloadReportPreview(true);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       {/* KOPBALK */}
@@ -228,7 +315,6 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
 
         {/* CONTROLS */}
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-          {/* Centraal Object Selector */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             <label style={{ fontSize: '0.75rem', color: '#555', fontWeight: 500 }}>
               Centraal Object {isLoadingObjects && '(laden...)'}
@@ -243,7 +329,6 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
             />
           </div>
 
-          {/* Diepte van de boom */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             <label style={{ fontSize: '0.75rem', color: '#555', fontWeight: 500 }}>
               Niveaus Diep
@@ -268,7 +353,6 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
             </select>
           </div>
 
-          {/* Template Keuze & Beheer */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             <label style={{ fontSize: '0.75rem', color: '#555', fontWeight: 500 }}>
               Template {isLoadingTemplates && '(laden...)'}
@@ -299,7 +383,6 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
                 )}
               </select>
 
-              {/* Bewerken knop */}
               <button
                 onClick={handleOpenEditTemplate}
                 disabled={!config.templateId}
@@ -317,7 +400,6 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
                 ⚙️
               </button>
 
-              {/* Nieuw sjabloon knop */}
               <button
                 onClick={handleOpenNewTemplate}
                 title="Nieuw sjabloon toevoegen"
@@ -337,7 +419,6 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
             </div>
           </div>
 
-          {/* Export Acties */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             <label style={{ fontSize: '0.75rem', color: '#555', fontWeight: 500 }}>
               Export
@@ -405,7 +486,10 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
             </div>
           }
           right={
-            <div style={{ backgroundColor: '#eef1f5', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
+            <div
+              ref={rightPaneRef}
+              style={{ backgroundColor: '#eef1f5', height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}
+            >
               {isLoadingReport ? (
                 <div style={{ padding: '24px', color: '#666', fontSize: '0.9rem' }}>
                   Rapportage genereren...
@@ -431,14 +515,38 @@ const handleSaveTemplate = async (templateData: Partial<DbTemplateRecord>) => {
           }
         />
       </div>
+      {/* Node Editor Modal voor sowieso Ctrl-klik (Tree) & Dubbelklik titel (Report) */}
+      <NodeEditorModal
+        node={selectedObjectForEdit}
+        isOpen={isNodeEditorOpen}
+        onClose={() => {
+          setIsNodeEditorOpen(false);
+          setSelectedObjectForEdit(null);
+        }}
+        onSave={handleNodeEditorSave}
+      />
 
-      {/* Modal Editor */}
+      {/* Template Editor Modal */}
       {isTemplateEditorOpen && (
         <TemplateEditorModal
           templateId={editingTemplateId}
           fetchTemplateById={fetchTemplateById}
           onClose={() => setIsTemplateEditorOpen(false)}
           onSave={handleSaveTemplate}
+        />
+      )}
+
+      {/* RichText Editor Modal vanuit Rapport Preview */}
+      {isRichTextModalOpen && activeParamValue && (
+        <RichTextEditorModal
+          isOpen={isRichTextModalOpen}
+          initialValue={activeParamValue.content}
+          title="Tekst bewerken uit rapportage"
+          onClose={() => {
+            setIsRichTextModalOpen(false);
+            setActiveParamValue(null);
+          }}
+          onSave={handleSaveRichText}
         />
       )}
     </div>

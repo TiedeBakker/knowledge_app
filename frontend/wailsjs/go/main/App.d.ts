@@ -24,6 +24,8 @@ export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;
 
 export function GetGraphNetwork(arg1:boolean,arg2:number):Promise<main.GraphData>;
 
+export function GetObjectById(arg1:string):Promise<main.ObjectEntity>;
+
 export function GetObjectTree(arg1:string,arg2:number):Promise<main.GraphNode>;
 
 export function GetObjectTypes():Promise<Array<main.ObjectTypeOption>>;

@@ -106,6 +106,7 @@ func (a *App) ExportBookReportToPDF(rootID string, maxDepth int, templateID stri
 
 	return targetPDFPath, nil
 }
+
 // wrapInFullHTMLDocument blijft ongewijzigd
 func wrapInFullHTMLDocument(bodyHTML string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
@@ -143,6 +144,7 @@ func wrapInFullHTMLDocument(bodyHTML string) string {
         
         .report-section { margin-bottom: 2rem; }
         .report-section.level-1 { page-break-before: always; }
+		.callout-box {color: #aa6733}
         
         h1, h2, h3, h4 { color: #222; page-break-after: avoid; }
         

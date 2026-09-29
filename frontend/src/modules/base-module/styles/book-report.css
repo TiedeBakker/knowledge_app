@@ -57,7 +57,7 @@
   color: #005fb8;
   text-decoration: none;
 }
-
+.callout-box {color: #aa6733}
 .report-toc a:hover {
   text-decoration: underline;
 }

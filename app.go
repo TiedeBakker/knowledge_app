@@ -858,6 +858,7 @@ type ReportTemplate struct {
 	ID                   string          `json:"id"`
 	Name                 string          `json:"name"`
 	ContentParameterCode string          `json:"contentParameterCode"`
+	Comment              string          `json:"_comment,omitempty"` // Toelichting/commentaar op het sjabloon
 	HierarchyRules       []HierarchyRule `json:"hierarchyRules"`
 }
 

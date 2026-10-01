@@ -24,6 +24,8 @@ export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;
 
 export function GetGraphNetwork(arg1:boolean,arg2:number):Promise<main.GraphData>;
 
+export function GetLocalImageBase64(arg1:string):Promise<string>;
+
 export function GetObjectById(arg1:string):Promise<main.ObjectEntity>;
 
 export function GetObjectTree(arg1:string,arg2:number):Promise<main.GraphNode>;
@@ -65,6 +67,8 @@ export function SearchNodesForSelect(arg1:string,arg2:number):Promise<Array<main
 export function SearchParametersForSelect(arg1:string):Promise<Array<main.ParameterDefinition>>;
 
 export function SelectDirectory():Promise<string>;
+
+export function SelectImageFile():Promise<string>;
 
 export function SelectSavePath(arg1:string):Promise<string>;
 

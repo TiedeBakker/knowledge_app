@@ -12,10 +12,8 @@ import (
 var assets embed.FS
 
 func main() {
-	// Create an instance of the app structure
 	app := NewApp()
 
-	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "knowledge-app",
 		Width:  1024,
@@ -34,4 +32,3 @@ func main() {
 		println("Error:", err.Error())
 	}
 }
-

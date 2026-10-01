@@ -77,10 +77,10 @@ export const ReportModule: React.FC = () => {
 
     // Bepaal de daadwerkelijke RichText inhoud en strip eventuele inline lichte/witte kleuren
     let rawContent = (contentParam as any)?.value || '';
-    if (rawContent) {
-      rawContent = rawContent
-        .replace(/color:\s*(?:#fff(?:fff)?|#ffffff[0-9a-f]{2}|white|rgb\(255,\s*255,\s*255\)|rgba\(255,\s*255,\s*255,\s*[\d.]+\))/gi, 'color: inherit');
-    }
+    // if (rawContent) {
+    //   rawContent = rawContent
+    //     .replace(/color:\s*(?:#fff(?:fff)?|#ffffff[0-9a-f]{2}|white|rgb\(255,\s*255,\s*255\)|rgba\(255,\s*255,\s*255,\s*[\d.]+\))/gi, 'color: inherit');
+    // }
 
     // Bepaal de uitgaande relatienaam (bijv. "Onderdeel van") voor extra context (gebruik relation_label)
     const relationType = treeNode.relation?.relation_label

@@ -4,23 +4,24 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
+	"runtime" // Standaard Go runtime package (voor runtime.GOOS)
 	"strings"
 	"time"
 
 	_ "github.com/glebarez/go-sqlite"
-	
-	// Geef Wails runtime een alias:
+
+	// Wails runtime met een alias 'wailsruntime':
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
-
 type App struct {
 	ctx context.Context
 	db  *sql.DB
@@ -1064,4 +1065,57 @@ func (a *App) GetObjectById(id string) (*ObjectEntity, error) {
 	}
 
 	return &o, nil
+}
+
+// GetLocalImageBase64 leest een lokaal bestand en geeft een Data URL terug (data:image/jpeg;base64,...)
+func (a *App) GetLocalImageBase64(filePath string) (string, error) {
+	// 1. Maak er een schoon Windows-pad van
+	cleanPath := filepath.FromSlash(strings.TrimSpace(filePath))
+
+	// 2. Lees de bestandsinhoud
+	bytes, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("kan bestand niet lezen: %w", err)
+	}
+
+	// 3. Bepaal het MIME-type (image/jpeg, image/png, etc.)
+	mimeType := http.DetectContentType(bytes)
+	if strings.HasPrefix(mimeType, "text/plain") {
+		// Fallback op basis van extensie
+		ext := strings.ToLower(filepath.Ext(cleanPath))
+		switch ext {
+		case ".jpg", ".jpeg":
+			mimeType = "image/jpeg"
+		case ".png":
+			mimeType = "image/png"
+		case ".webp":
+			mimeType = "image/webp"
+		case ".svg":
+			mimeType = "image/svg+xml"
+		}
+	}
+
+	// 4. Zet om naar base64 data URL
+	encoded := base64.StdEncoding.EncodeToString(bytes)
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded), nil
+}
+
+// SelectImageFile opent het Windows verkenner venster voor afbeeldingen
+func (a *App) SelectImageFile() (string, error) {
+	selection, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Selecteer een afbeelding",
+		Filters: []wailsruntime.FileFilter{
+			{
+				DisplayName: "Afbeeldingen (*.jpg; *.jpeg; *.png; *.webp; *.gif)",
+				Pattern:     "*.jpg;*.jpeg;*.png;*.webp;*.gif",
+			},
+		},
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	// Geeft het geselecteerde absolute pad terug (of een lege string als gecanceld is)
+	return selection, nil
 }

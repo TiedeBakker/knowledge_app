@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+	"strings"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -107,9 +108,8 @@ func (a *App) ExportBookReportToPDF(rootID string, maxDepth int, templateID stri
 	return targetPDFPath, nil
 }
 
-// wrapInFullHTMLDocument blijft ongewijzigd
 func wrapInFullHTMLDocument(bodyHTML string) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
+	htmlTemplate := `<!DOCTYPE html>
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
@@ -140,14 +140,82 @@ func wrapInFullHTMLDocument(bodyHTML string) string {
         .report-toc ul { list-style: none; padding-left: 0; }
         .report-toc li { margin-bottom: 0.4rem; }
         .report-toc a,
-		.report-section-toc a { text-decoration: none; color: #0056b3; }
+        .report-section-toc a { text-decoration: none; color: #0056b3; }
         
         .report-section { margin-bottom: 2rem; }
         .report-section.level-1 { page-break-before: always; }
-		.callout-box {color: #aa6733}
+        .callout-box { color: #aa6733; }
         
         h1, h2, h3, h4 { color: #222; page-break-after: avoid; }
+        mark { border-radius: 2px; padding: 0px 2px; }
         
+        /* Styling voor Code-/Sonderingsblokken */
+        pre, pre.report-code-block {
+            background-color: #f1f5f9;
+            border-left: 4px solid #0284c7;
+            border-radius: 4px;
+            padding: 10px 14px;
+            font-family: 'Consolas', 'Courier New', Courier, monospace;
+            font-size: 0.85rem;
+            line-height: 1.45;
+            color: #0f172a;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+
+        pre code {
+            background: transparent;
+            padding: 0;
+            font-family: inherit;
+            color: inherit;
+        }
+
+        /* Container- & Zoomafhandeling voor Afbeeldingen */
+        .ProseMirror img,
+        .report-content img,
+        .editable-richtext img,
+        .book-report-wrapper img {
+            max-width: 100% !important;
+            height: auto !important;
+            display: block;
+            border-radius: 4px;
+        }
+
+        figure, div[data-layout] {
+            max-width: 100%;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+
+        img[data-layout="inline-center"] {
+            margin: 12px auto !important;
+        }
+        img[data-layout="inline-left"] {
+            float: left !important;
+            margin: 0 16px 12px 0 !important;
+            max-width: 48% !important;
+        }
+        img[data-layout="inline-right"] {
+            float: right !important;
+            margin: 0 0 12px 16px !important;
+            max-width: 48% !important;
+        }
+        img[data-layout="span-all"] {
+            grid-column: 1 / -1;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 16px 0 !important;
+        }
+
+        .editable-richtext::after,
+        .book-report-wrapper::after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+
         @media print {
             body { padding: 0; }
             .report-toc { background: none; border: 1px solid #ddd; }
@@ -155,7 +223,9 @@ func wrapInFullHTMLDocument(bodyHTML string) string {
     </style>
 </head>
 <body>
-    %s
+    {{BODY_CONTENT}}
 </body>
-</html>`, bodyHTML)
+</html>`
+
+	return strings.Replace(htmlTemplate, "{{BODY_CONTENT}}", bodyHTML, 1)
 }

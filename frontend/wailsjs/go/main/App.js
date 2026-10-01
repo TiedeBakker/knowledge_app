@@ -46,6 +46,10 @@ export function GetGraphNetwork(arg1, arg2) {
   return window['go']['main']['App']['GetGraphNetwork'](arg1, arg2);
 }
 
+export function GetLocalImageBase64(arg1) {
+  return window['go']['main']['App']['GetLocalImageBase64'](arg1);
+}
+
 export function GetObjectById(arg1) {
   return window['go']['main']['App']['GetObjectById'](arg1);
 }
@@ -128,6 +132,10 @@ export function SearchParametersForSelect(arg1) {
 
 export function SelectDirectory() {
   return window['go']['main']['App']['SelectDirectory']();
+}
+
+export function SelectImageFile() {
+  return window['go']['main']['App']['SelectImageFile']();
 }
 
 export function SelectSavePath(arg1) {

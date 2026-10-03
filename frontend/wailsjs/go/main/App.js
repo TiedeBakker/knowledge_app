@@ -34,6 +34,18 @@ export function GenerateBookReport(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateBookReport'](arg1, arg2, arg3);
 }
 
+export function GetAllMasterParameters() {
+  return window['go']['main']['App']['GetAllMasterParameters']();
+}
+
+export function GetAllMasterRelations() {
+  return window['go']['main']['App']['GetAllMasterRelations']();
+}
+
+export function GetAllMasterUnits() {
+  return window['go']['main']['App']['GetAllMasterUnits']();
+}
+
 export function GetAllObjectsSimple() {
   return window['go']['main']['App']['GetAllObjectsSimple']();
 }
@@ -100,6 +112,18 @@ export function OpenFile(arg1) {
 
 export function ReindexOutgoingRelations(arg1) {
   return window['go']['main']['App']['ReindexOutgoingRelations'](arg1);
+}
+
+export function SaveMasterParameter(arg1) {
+  return window['go']['main']['App']['SaveMasterParameter'](arg1);
+}
+
+export function SaveMasterRelation(arg1) {
+  return window['go']['main']['App']['SaveMasterRelation'](arg1);
+}
+
+export function SaveMasterUnit(arg1) {
+  return window['go']['main']['App']['SaveMasterUnit'](arg1);
 }
 
 export function SaveParameterValue(arg1) {

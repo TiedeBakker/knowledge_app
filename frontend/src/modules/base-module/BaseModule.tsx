@@ -25,8 +25,8 @@ import {
 
 
 // Backend / App API import
-import { NodeEditorModal } from '../../components/NodeEditorModal'; 
-import { GetObjectById, SaveParameterValue } from '../../../../frontend/wailsjs/go/main/App';
+import { NodeEditorModal } from '../../components/NodeEditorModal';
+import { GetObjectById, SaveParameterValue, UpdateObject } from '../../../../frontend/wailsjs/go/main/App';
 import { main } from '../../../../frontend/wailsjs/go/models';
 
 export const BaseModule: React.FC = () => {
@@ -281,16 +281,23 @@ export const BaseModule: React.FC = () => {
     openObjectEditorById(objectId);
   };
 
-  const handleNodeEditorSave = async (_updatedNode: main.ObjectEntity) => {
-    // Ververs de boomstructuur als het geselecteerde/gewijzigde object onderdeel is van de weergave
-    if (config.rootObjectId) {
-      const refreshedTree = await fetchObjectTree(config.rootObjectId, config.maxDepth);
-      setTreeData(refreshedTree);
-    }
-    // Ververs het rapport met behoud van scrollpositie
-    await reloadReportPreview(true);
-  };
+  const handleNodeEditorSave = async (updatedNode: main.ObjectEntity) => {
+    try {
+      // 1. Schrijf de wijzigingen aan het object (zoals het label) daadwerkelijk weg naar SQLite
+      await UpdateObject(updatedNode);
 
+      // 2. Ververs de boomstructuur in de state
+      if (config.rootObjectId) {
+        const refreshedTree = await fetchObjectTree(config.rootObjectId, config.maxDepth);
+        setTreeData(refreshedTree);
+      }
+
+      // 3. Hergenereer de rapport-preview zodat de nieuwe titel direct zichtbaar is
+      await reloadReportPreview(true);
+    } catch (err) {
+      console.error('Fout bij opslaan van object in BaseModule:', err);
+    }
+  };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       {/* KOPBALK */}

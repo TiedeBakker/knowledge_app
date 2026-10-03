@@ -6,6 +6,7 @@ import { RelationEditorModal } from './RelationEditorModal';
 import { ParameterValueEditorModal } from './ParameterValueEditorModal';
 import { getInboundRelationLabel, getOutboundRelationLabel } from '../utils/relationUtils';
 import { isoToLocalDatetime, localDatetimeToIso, formatDisplayDateTime } from '../utils/dateUtils';
+import { MasterDataEditorModal } from './MasterDataEditorModal';
 
 interface Props {
   node: main.ObjectEntity | null;
@@ -23,6 +24,15 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
   const [relations, setRelations] = useState<main.RelationValueEntity[]>([]);
   const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+
+   // States voor MasterDataEditorModal
+  const [isMasterDataOpen, setIsMasterDataOpen] = useState<boolean>(false);
+  const [masterDataTab, setMasterDataTab] = useState<'parameters' | 'units' | 'relations'>('parameters');
+
+  const openMasterData = (tab: 'parameters' | 'units' | 'relations') => {
+    setMasterDataTab(tab);
+    setIsMasterDataOpen(true);
+  };
 
   // State voor de RelationEditorModal
   const [selectedRelation, setSelectedRelation] = useState<main.RelationValueEntity | null>(null);
@@ -240,7 +250,16 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
         {/* HEADER */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: '12px', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0 }}>Node Editor: {formData.label || 'Onbekend'}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h2 style={{ margin: 0 }}>Node Editor: {formData.label || 'Onbekend'}</h2>
+            <button
+              onClick={() => openMasterData('parameters')}
+              style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', background: '#f0f0f0', border: '1px solid #ccc', borderRadius: '4px' }}
+              title="Beheer parameters, eenheden en relatietypes"
+            >
+              ⚙️ Basistabellen
+            </button>
+          </div>
           <button onClick={onClose} style={{ cursor: 'pointer', background: 'none', border: 'none', fontSize: '1.5rem' }}>✕</button>
         </div>
 
@@ -485,6 +504,9 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
               <button onClick={handleAddMeasurement} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>
                 + Meting
               </button>
+              <button onClick={() => openMasterData('parameters')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', background: '#e3f2fd', border: '1px solid #90caf9' }}>
+                ⚙️ Beheer
+              </button>
             </div>
           </div>
 
@@ -590,6 +612,15 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
           onSaved={refreshParameters}
         />
 
+        <MasterDataEditorModal
+          isOpen={isMasterDataOpen}
+          initialTab={masterDataTab}
+          onClose={() => setIsMasterDataOpen(false)}
+          onUpdated={() => {
+            refreshParameters();
+            refreshRelations();
+          }}
+        />
       </div>
     </div>
   );

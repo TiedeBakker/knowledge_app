@@ -1119,3 +1119,136 @@ func (a *App) SelectImageFile() (string, error) {
 	// Geeft het geselecteerde absolute pad terug (of een lege string als gecanceld is)
 	return selection, nil
 }
+
+// --- STRUCTS VOOR MASTER DATA ---
+
+type ParameterMaster struct {
+	ID        string  `json:"id"`
+	Label     string  `json:"label"`
+	Code      string  `json:"code"`
+	DataType  string  `json:"dataType"`
+	Unit      *string `json:"unit,omitempty"`
+	UpdatedAt string  `json:"updatedAt"`
+}
+
+type UnitMaster struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Symbol    string `json:"symbol"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type RelationMaster struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+// --- PARAMETERS CRUD ---
+
+func (a *App) GetAllMasterParameters() ([]ParameterMaster, error) {
+	query := `SELECT id, label, code, data_type, unit, updated_at FROM parameters WHERE deleted_at IS NULL ORDER BY label ASC`
+	rows, err := a.db.QueryContext(a.ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []ParameterMaster
+	for rows.Next() {
+		var p ParameterMaster
+		var unit sql.NullString
+		if err := rows.Scan(&p.ID, &p.Label, &p.Code, &p.DataType, &unit, &p.UpdatedAt); err != nil {
+			continue
+		}
+		if unit.Valid {
+			p.Unit = &unit.String
+		}
+		list = append(list, p)
+	}
+	return list, nil
+}
+
+func (a *App) SaveMasterParameter(p ParameterMaster) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if p.ID == "" {
+		p.ID = NewUUIDv7()
+		query := `INSERT INTO parameters (id, label, code, data_type, unit, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+		_, err := a.db.ExecContext(a.ctx, query, p.ID, p.Label, p.Code, p.DataType, p.Unit, now)
+		return err
+	}
+
+	query := `UPDATE parameters SET label = ?, code = ?, data_type = ?, unit = ?, updated_at = ? WHERE id = ?`
+	_, err := a.db.ExecContext(a.ctx, query, p.Label, p.Code, p.DataType, p.Unit, now, p.ID)
+	return err
+}
+
+// --- UNITS CRUD ---
+
+func (a *App) GetAllMasterUnits() ([]UnitMaster, error) {
+	query := `SELECT id, label, symbol, updated_at FROM units WHERE deleted_at IS NULL ORDER BY label ASC`
+	rows, err := a.db.QueryContext(a.ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []UnitMaster
+	for rows.Next() {
+		var u UnitMaster
+		if err := rows.Scan(&u.ID, &u.Label, &u.Symbol, &u.UpdatedAt); err != nil {
+			continue
+		}
+		list = append(list, u)
+	}
+	return list, nil
+}
+
+func (a *App) SaveMasterUnit(u UnitMaster) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if u.ID == "" {
+		u.ID = NewUUIDv7()
+		query := `INSERT INTO units (id, label, symbol, updated_at) VALUES (?, ?, ?, ?)`
+		_, err := a.db.ExecContext(a.ctx, query, u.ID, u.Label, u.Symbol, now)
+		return err
+	}
+
+	query := `UPDATE units SET label = ?, symbol = ?, updated_at = ? WHERE id = ?`
+	_, err := a.db.ExecContext(a.ctx, query, u.Label, u.Symbol, now, u.ID)
+	return err
+}
+
+// --- RELATIONS CRUD ---
+
+func (a *App) GetAllMasterRelations() ([]RelationMaster, error) {
+	query := `SELECT id, label, updated_at FROM relations WHERE deleted_at IS NULL ORDER BY label ASC`
+	rows, err := a.db.QueryContext(a.ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []RelationMaster
+	for rows.Next() {
+		var r RelationMaster
+		if err := rows.Scan(&r.ID, &r.Label, &r.UpdatedAt); err != nil {
+			continue
+		}
+		list = append(list, r)
+	}
+	return list, nil
+}
+
+func (a *App) SaveMasterRelation(r RelationMaster) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if r.ID == "" {
+		r.ID = NewUUIDv7()
+		query := `INSERT INTO relations (id, label, updated_at) VALUES (?, ?, ?)`
+		_, err := a.db.ExecContext(a.ctx, query, r.ID, r.Label, now)
+		return err
+	}
+
+	query := `UPDATE relations SET label = ?, updated_at = ? WHERE id = ?`
+	_, err := a.db.ExecContext(a.ctx, query, r.Label, now, r.ID)
+	return err
+}

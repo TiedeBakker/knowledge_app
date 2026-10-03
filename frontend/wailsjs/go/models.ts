@@ -457,6 +457,28 @@ export namespace main {
 	        this.unit = source["unit"];
 	    }
 	}
+	export class ParameterMaster {
+	    id: string;
+	    label: string;
+	    code: string;
+	    dataType: string;
+	    unit?: string;
+	    updatedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ParameterMaster(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.code = source["code"];
+	        this.dataType = source["dataType"];
+	        this.unit = source["unit"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class ParameterSummary {
 	    id: string;
 	    parameter_id: string;
@@ -492,6 +514,22 @@ export namespace main {
 	    }
 	}
 	
+	export class RelationMaster {
+	    id: string;
+	    label: string;
+	    updatedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RelationMaster(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class RelationSummary {
 	    id: string;
 	    relation_id: string;
@@ -779,6 +817,24 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class UnitMaster {
+	    id: string;
+	    label: string;
+	    symbol: string;
+	    updatedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UnitMaster(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.symbol = source["symbol"];
+	        this.updatedAt = source["updatedAt"];
+	    }
 	}
 
 }

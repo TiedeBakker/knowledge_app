@@ -18,6 +18,12 @@ export function FetchReportTree(arg1:string,arg2:number,arg3:string):Promise<mai
 
 export function GenerateBookReport(arg1:string,arg2:number,arg3:string):Promise<string>;
 
+export function GetAllMasterParameters():Promise<Array<main.ParameterMaster>>;
+
+export function GetAllMasterRelations():Promise<Array<main.RelationMaster>>;
+
+export function GetAllMasterUnits():Promise<Array<main.UnitMaster>>;
+
 export function GetAllObjectsSimple():Promise<Array<main.ObjectEntity>>;
 
 export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;
@@ -51,6 +57,12 @@ export function GetTreeForNode(arg1:string,arg2:number,arg3:number):Promise<main
 export function OpenFile(arg1:string):Promise<void>;
 
 export function ReindexOutgoingRelations(arg1:string):Promise<number>;
+
+export function SaveMasterParameter(arg1:main.ParameterMaster):Promise<void>;
+
+export function SaveMasterRelation(arg1:main.RelationMaster):Promise<void>;
+
+export function SaveMasterUnit(arg1:main.UnitMaster):Promise<void>;
 
 export function SaveParameterValue(arg1:main.ParameterValueEntity):Promise<void>;
 

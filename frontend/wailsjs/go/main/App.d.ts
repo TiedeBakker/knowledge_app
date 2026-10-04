@@ -6,6 +6,10 @@ export function CreateNewObject(arg1:string,arg2:string):Promise<string>;
 
 export function DeleteRelationValue(arg1:string):Promise<void>;
 
+export function ExecuteBatchInsertWithUUIDv7(arg1:string,arg2:number):Promise<main.SQLExecutionResult>;
+
+export function ExecuteGenericInsertWithUUIDv7(arg1:string):Promise<main.SQLExecutionResult>;
+
 export function ExecuteMediaImport(arg1:string,arg2:string,arg3:string,arg4:Array<main.MediaImportItem>):Promise<void>;
 
 export function ExportBookReportToHTML(arg1:string,arg2:number,arg3:string):Promise<string>;
@@ -17,6 +21,8 @@ export function ExportReportToPDF(arg1:main.ReportTreeNode,arg2:string):Promise<
 export function FetchReportTree(arg1:string,arg2:number,arg3:string):Promise<main.ReportTreeNode>;
 
 export function GenerateBookReport(arg1:string,arg2:number,arg3:string):Promise<string>;
+
+export function GenerateSingleUUIDv7():Promise<string>;
 
 export function GetAllMasterParameters():Promise<Array<main.ParameterMaster>>;
 
@@ -55,6 +61,8 @@ export function GetTemplates():Promise<Array<main.DbTemplateRecord>>;
 export function GetTreeForNode(arg1:string,arg2:number,arg3:number):Promise<main.TreeNodeData>;
 
 export function OpenFile(arg1:string):Promise<void>;
+
+export function PreviewSQLQuery(arg1:main.SQLQueryRequest):Promise<main.SQLQueryPreviewResult>;
 
 export function ReindexOutgoingRelations(arg1:string):Promise<number>;
 

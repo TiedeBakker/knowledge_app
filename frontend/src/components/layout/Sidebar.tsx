@@ -3,7 +3,7 @@ import React from 'react';
 import './Sidebar.css';
 
 // 1. Voeg 'base-module' toe aan ModuleType
-export type ModuleType = 'tree-viewer' | 'reporting' | 'media-import' | 'base-module';
+export type ModuleType = 'tree-viewer' | 'reporting' | 'media-import' | 'base-module'| 'toolbox';
 
 interface Props {
   activeModule: ModuleType;
@@ -67,6 +67,16 @@ export const Sidebar: React.FC<Props> = ({
         >
           <span className="icon">📷</span> 
           {!isCollapsed && <span className="label">Media Import</span>}
+        </button>
+
+        {/* TOOLBOX KNOP */}
+        <button
+          className={`nav-button ${activeModule === 'toolbox' ? 'active' : ''}`}
+          onClick={() => onSelectModule('toolbox')}
+          title="Toolbox"
+        >
+          <span className="icon">🧰</span> 
+          {!isCollapsed && <span className="label">Toolbox</span>}
         </button>
       </nav>
     </aside>

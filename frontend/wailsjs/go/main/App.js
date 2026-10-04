@@ -10,6 +10,14 @@ export function DeleteRelationValue(arg1) {
   return window['go']['main']['App']['DeleteRelationValue'](arg1);
 }
 
+export function ExecuteBatchInsertWithUUIDv7(arg1, arg2) {
+  return window['go']['main']['App']['ExecuteBatchInsertWithUUIDv7'](arg1, arg2);
+}
+
+export function ExecuteGenericInsertWithUUIDv7(arg1) {
+  return window['go']['main']['App']['ExecuteGenericInsertWithUUIDv7'](arg1);
+}
+
 export function ExecuteMediaImport(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ExecuteMediaImport'](arg1, arg2, arg3, arg4);
 }
@@ -32,6 +40,10 @@ export function FetchReportTree(arg1, arg2, arg3) {
 
 export function GenerateBookReport(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateBookReport'](arg1, arg2, arg3);
+}
+
+export function GenerateSingleUUIDv7() {
+  return window['go']['main']['App']['GenerateSingleUUIDv7']();
 }
 
 export function GetAllMasterParameters() {
@@ -108,6 +120,10 @@ export function GetTreeForNode(arg1, arg2, arg3) {
 
 export function OpenFile(arg1) {
   return window['go']['main']['App']['OpenFile'](arg1);
+}
+
+export function PreviewSQLQuery(arg1) {
+  return window['go']['main']['App']['PreviewSQLQuery'](arg1);
 }
 
 export function ReindexOutgoingRelations(arg1) {

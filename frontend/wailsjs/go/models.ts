@@ -762,6 +762,50 @@ export namespace main {
 		}
 	}
 	
+	export class SQLExecutionResult {
+	    affectedRows: number;
+	    success: boolean;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SQLExecutionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.affectedRows = source["affectedRows"];
+	        this.success = source["success"];
+	        this.message = source["message"];
+	    }
+	}
+	export class SQLQueryPreviewResult {
+	    count: number;
+	    columns: string[];
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SQLQueryPreviewResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.columns = source["columns"];
+	        this.error = source["error"];
+	    }
+	}
+	export class SQLQueryRequest {
+	    query: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SQLQueryRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.query = source["query"];
+	    }
+	}
 	export class SimpleObject {
 	    id: string;
 	    label: string;

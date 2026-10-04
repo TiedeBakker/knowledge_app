@@ -4,6 +4,7 @@ import { TreeViewerModule } from './modules/tree-viewer/TreeViewerModule';
 import { BaseModule } from './modules/base-module/BaseModule'; // Importeer de nieuwe module
 import { ReportModule } from './modules/reporting/ReportModule';
 import { MediaImportModal } from './modules/import/MediaImportModal';
+import { ToolboxModule } from './modules/toolbox-module/ToolboxModule';
 import './App.css';
 
 export const App: React.FC = () => {
@@ -27,6 +28,7 @@ export const App: React.FC = () => {
         {activeModule === 'tree-viewer' && <TreeViewerModule />}
         {activeModule === 'base-module' && <BaseModule />}
         {activeModule === 'reporting' && <ReportModule />}
+        {activeModule === 'toolbox' && <ToolboxModule />}
 
         <MediaImportModal
           isOpen={activeModule === 'media-import'}

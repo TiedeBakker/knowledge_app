@@ -93,3 +93,5 @@ export function SelectImageFile():Promise<string>;
 export function SelectSavePath(arg1:string):Promise<string>;
 
 export function UpdateObject(arg1:main.ObjectEntity):Promise<void>;
+
+export function V2_GenerateBookReport(arg1:string,arg2:string):Promise<string>;

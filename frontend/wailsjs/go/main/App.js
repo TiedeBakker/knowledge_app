@@ -185,3 +185,7 @@ export function SelectSavePath(arg1) {
 export function UpdateObject(arg1) {
   return window['go']['main']['App']['UpdateObject'](arg1);
 }
+
+export function V2_GenerateBookReport(arg1, arg2) {
+  return window['go']['main']['App']['V2_GenerateBookReport'](arg1, arg2);
+}

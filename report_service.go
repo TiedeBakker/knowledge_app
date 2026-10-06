@@ -54,6 +54,24 @@ type GlobalSettings struct {
 	Numbering NumberingConfig `json:"numbering"`
 }
 
+// GlobalSettings voor v2 sjablonen
+type V2GlobalSettings struct {
+	TOC      TOCConfig `json:"toc"`
+	MaxDepth int       `json:"max_depth"` // <- Nieuw: instelbare maximale diepte
+}
+
+// V2ReportConfig stelt de complete template JSON voor
+type V2ReportConfig struct {
+	Version    int    `json:"version"`
+	Type       string `json:"type"`
+	DataSource struct {
+		ViewName   string `json:"view_name"`
+		PrimaryKey string `json:"primary_key"`
+	} `json:"data_source"`
+	GlobalSettings V2GlobalSettings `json:"global_settings"`
+	Fields         []V2FieldDef     `json:"fields"`
+}
+
 type RootLevelConfig struct {
 	TitleField         string                `json:"title_field"`
 	FallbackTitleField string                `json:"fallback_title_field,omitempty"`
@@ -884,47 +902,71 @@ type V2FieldDef struct {
 	ParamValueIDField string `json:"param_value_id_field,omitempty"` // <- Toegevoegd voor rich_text dubbelklik
 	CSS               string `json:"css,omitempty"`
 }
-// V2_GenerateBookReport verwerkt de data via het v2-fundament
-func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (string, error) {
-	viewName := DefaultV2View
-	pkCol := DefaultV2PrimaryKey
-	var templateFields []V2FieldDef
 
-	// 1. Haal eventueel template-config op uit de database
+func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (string, error) {
+	var config V2ReportConfig
+	config.DataSource.ViewName = DefaultV2View
+	config.DataSource.PrimaryKey = DefaultV2PrimaryKey
+
+	// 1. Template config ophalen
 	if templateId != "" {
 		var rawConfig sql.NullString
 		err := a.db.QueryRow(`SELECT config_json FROM templates WHERE id = ? AND deleted_at IS NULL`, templateId).Scan(&rawConfig)
 		if err == nil && rawConfig.Valid && rawConfig.String != "" {
-			var config struct {
-				DataSource struct {
-					ViewName   string `json:"view_name"`
-					PrimaryKey string `json:"primary_key"`
-				} `json:"data_source"`
-				Fields []V2FieldDef `json:"fields"`
-			}
-
-			if err := json.Unmarshal([]byte(rawConfig.String), &config); err == nil {
-				if config.DataSource.ViewName != "" {
-					viewName = config.DataSource.ViewName
-				}
-				if config.DataSource.PrimaryKey != "" {
-					pkCol = config.DataSource.PrimaryKey
-				}
-				templateFields = config.Fields
-			}
+			_ = json.Unmarshal([]byte(rawConfig.String), &config)
 		}
 	}
 
-	// 2. Schema-agnostisch ophalen van de data uit de view (map[string]any)
-	dataMap, err := a.v2FetchObjectMap(viewName, pkCol, rootObjectId)
-	if err != nil {
-		return "", fmt.Errorf("v2 data ophalen uit view %s mislukt: %w", viewName, err)
+	viewName := config.DataSource.ViewName
+	pkCol := config.DataSource.PrimaryKey
+	if viewName == "" { viewName = DefaultV2View }
+	if pkCol == "" { pkCol = DefaultV2PrimaryKey }
+
+	// 2. Bepaal maximale diepte (Standaard: 5, Absoluut Maximum: 10)
+	maxDepth := config.GlobalSettings.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = 5 // Standaard als niks is ingesteld
+	}
+	if maxDepth > 10 {
+		maxDepth = 10 // Absoluut maximum voor hele speciale situaties
 	}
 
-	// 3. Renderen naar HTML op basis van de gedefinieerde fields
-	return a.v2RenderHTML(viewName, rootObjectId, dataMap, templateFields)
-}
+	// 3. Gehele boomstructuur ophalen tot maxDepth
+	nodeTree, err := a.v2FetchReportNodeRecursive(viewName, pkCol, rootObjectId, 1, maxDepth)
+	if err != nil {
+		return "", fmt.Errorf("v2 boom ophalen mislukt: %w", err)
+	}
 
+	// 4. Boekomslag header
+	rootTitle := fmt.Sprintf("%v", nodeTree.Data["display_title"])
+	if rootTitle == "" || rootTitle == "<nil>" {
+		rootTitle = fmt.Sprintf("Rapport: %s", rootObjectId)
+	}
+
+	bookHeaderHTML := fmt.Sprintf(`
+		<div class="v2-book-cover-header" style="border-bottom: 3px solid #0f172a; padding-bottom: 16px; margin-bottom: 32px;">
+			<h1 style="font-size: 2.2rem; font-weight: 700; color: #0f172a; margin: 0 0 8px 0; letter-spacing: -0.02em;">%s</h1>
+			<div style="font-size: 0.85rem; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Systeem Rapportage</div>
+		</div>
+	`, html.EscapeString(rootTitle))
+
+	// 5. TOC & Boom HTML genereren
+	tocHTML := a.v2GenerateTOC(*nodeTree, config.GlobalSettings.TOC)
+
+	renderedHTML, err := a.v2RenderNodeRecursive(*nodeTree, viewName, config.Fields)
+	if err != nil {
+		return "", fmt.Errorf("v2 boom HTML renderen mislukt: %w", err)
+	}
+
+	fullWrapper := fmt.Sprintf(`
+		<div class="v2-report-container" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: 32px 20px;">
+			%s
+			%s
+			%s
+		</div>`, bookHeaderHTML, tocHTML, renderedHTML)
+
+	return fullWrapper, nil
+}
 // v2RenderHTML genereert de HTML voor de v2-weergave
 // v2RenderHTML genereert de HTML voor de v2-weergave
 func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]any, fields []V2FieldDef) (string, error) {
@@ -944,12 +986,12 @@ func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]
         </header>
         
         <table style="width: 100%%; border-collapse: collapse; margin-top: 12px;">
-`, 
-    html.EscapeString(objectId), 
-    html.EscapeString(displayTitle), 
-    html.EscapeString(viewName), 
-    html.EscapeString(objectId),
-))
+`,
+		html.EscapeString(objectId),
+		html.EscapeString(displayTitle),
+		html.EscapeString(viewName),
+		html.EscapeString(objectId),
+	))
 
 	// Fallback als er geen velden geconfigureerd zijn
 	if len(fields) == 0 {
@@ -962,107 +1004,108 @@ func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]
 	}
 
 	for _, fieldDef := range fields {
-	val, exists := dataMap[fieldDef.Field]
-	if !exists || val == nil {
-		continue
-	}
+		val, exists := dataMap[fieldDef.Field]
+		if !exists || val == nil {
+			continue
+		}
 
-	valStr := fmt.Sprintf("%v", val)
-	labelToShow := fieldDef.Label
-	if strings.ToLower(labelToShow) == "none" {
-		labelToShow = ""
-	} else if labelToShow == "" {
-		labelToShow = fieldDef.Field
-	}
+		valStr := fmt.Sprintf("%v", val)
+		labelToShow := fieldDef.Label
+		if strings.ToLower(labelToShow) == "none" {
+			labelToShow = ""
+		} else if labelToShow == "" {
+			labelToShow = fieldDef.Field
+		}
 
-	// Bepaal de basisswitch voor relaties of rich_text
-	isRelationList := fieldDef.Type == "relation_list" || strings.HasPrefix(strings.TrimSpace(valStr), "[")
+		// Bepaal de basisswitch voor relaties of rich_text
+		isRelationList := fieldDef.Type == "relation_list" || strings.HasPrefix(strings.TrimSpace(valStr), "[")
 
-	if isRelationList && valStr != "" && valStr != "<nil>" {
-		var relations []map[string]any
-		if err := json.Unmarshal([]byte(valStr), &relations); err == nil {
-			if len(relations) == 0 {
-				valStr = "<em style='color: #94a3b8;'>Geen gekoppelde objecten</em>"
-			} else {
-				var relHTML strings.Builder
-				relHTML.WriteString("<ul style='margin: 0; padding-left: 18px; list-style-type: disc;'>")
-				for _, rel := range relations {
-					relHTML.WriteString(fmt.Sprintf(
-						"<li style='margin-bottom: 4px;'><strong>%v</strong> — %v <code style='font-size:0.8rem; color:#64748b;'>(%v)</code></li>",
-						html.EscapeString(fmt.Sprintf("%v", rel["relation_label"])),
-						html.EscapeString(fmt.Sprintf("%v", rel["target_label"])),
-						html.EscapeString(fmt.Sprintf("%v", rel["target_id"])),
-					))
+		if isRelationList && valStr != "" && valStr != "<nil>" {
+			var relations []map[string]any
+			if err := json.Unmarshal([]byte(valStr), &relations); err == nil {
+				if len(relations) == 0 {
+					valStr = "<em style='color: #94a3b8;'>Geen gekoppelde objecten</em>"
+				} else {
+					var relHTML strings.Builder
+					relHTML.WriteString("<ul style='margin: 0; padding-left: 18px; list-style-type: disc;'>")
+					for _, rel := range relations {
+						relHTML.WriteString(fmt.Sprintf(
+							"<li style='margin-bottom: 4px;'><strong>%v</strong> — %v <code style='font-size:0.8rem; color:#64748b;'>(%v)</code></li>",
+							html.EscapeString(fmt.Sprintf("%v", rel["relation_label"])),
+							html.EscapeString(fmt.Sprintf("%v", rel["target_label"])),
+							html.EscapeString(fmt.Sprintf("%v", rel["target_id"])),
+						))
+					}
+					relHTML.WriteString("</ul>")
+					valStr = relHTML.String()
 				}
-				relHTML.WriteString("</ul>")
-				valStr = relHTML.String()
 			}
-		}
-	} else if fieldDef.Type == "rich_text" {
-		var paramValueID string
-		if fieldDef.ParamValueIDField != "" {
-			if pvVal, ok := dataMap[fieldDef.ParamValueIDField]; ok && pvVal != nil {
-				paramValueID = fmt.Sprintf("%v", pvVal)
+		} else if fieldDef.Type == "rich_text" {
+			var paramValueID string
+			if fieldDef.ParamValueIDField != "" {
+				if pvVal, ok := dataMap[fieldDef.ParamValueIDField]; ok && pvVal != nil {
+					paramValueID = fmt.Sprintf("%v", pvVal)
+				}
 			}
-		}
 
-		// Geef eventueel de aangepaste CSS-style mee aan de richtext container
-		customStyle := "cursor: pointer;"
-		if fieldDef.CSS != "" {
-			customStyle = fmt.Sprintf("cursor: pointer; %s", fieldDef.CSS)
-		}
+			// Geef eventueel de aangepaste CSS-style mee aan de richtext container
+			customStyle := "cursor: pointer;"
+			if fieldDef.CSS != "" {
+				customStyle = fmt.Sprintf("cursor: pointer; %s", fieldDef.CSS)
+			}
 
-		if paramValueID != "" {
-			valStr = fmt.Sprintf(
-				`<div class="editable-richtext" data-param-value-id="%s" data-object-id="%s" style="%s">%s</div>`,
-				html.EscapeString(paramValueID),
-				html.EscapeString(objectId),
-				html.EscapeString(customStyle),
-				valStr,
-			)
+			if paramValueID != "" {
+				valStr = fmt.Sprintf(
+					`<div class="editable-richtext" data-param-value-id="%s" data-object-id="%s" style="%s">%s</div>`,
+					html.EscapeString(paramValueID),
+					html.EscapeString(objectId),
+					html.EscapeString(customStyle),
+					valStr,
+				)
+			} else {
+				valStr = fmt.Sprintf(`<div class="static-richtext" style="%s">%s</div>`, html.EscapeString(fieldDef.CSS), valStr)
+			}
 		} else {
-			valStr = fmt.Sprintf(`<div class="static-richtext" style="%s">%s</div>`, html.EscapeString(fieldDef.CSS), valStr)
+			valStr = html.EscapeString(valStr)
 		}
-	} else {
-		valStr = html.EscapeString(valStr)
-	}
 
-	// ---------------------------------------------------------------------
-	// RENDERING: Integreer optionele `css` op de cel/container
-	// ---------------------------------------------------------------------
-	
-	// Stel de basisstijl samen voor de inhoudscel
-	cellBaseStyle := "padding: 12px 8px; color: #0f172a; font-size: 0.95rem; line-height: 1.5;"
-	if fieldDef.CSS != "" && fieldDef.Type != "rich_text" {
-		cellBaseStyle = fmt.Sprintf("%s %s", cellBaseStyle, fieldDef.CSS)
-	}
+		// ---------------------------------------------------------------------
+		// RENDERING: Integreer optionele `css` op de cel/container
+		// ---------------------------------------------------------------------
 
-	if fieldDef.FullWidth {
-		if strings.ToLower(fieldDef.Label) == "none" {
-			htmlBuilder.WriteString(fmt.Sprintf(`
+		// Stel de basisstijl samen voor de inhoudscel
+		cellBaseStyle := "padding: 12px 8px; color: #0f172a; font-size: 0.95rem; line-height: 1.5;"
+		if fieldDef.CSS != "" && fieldDef.Type != "rich_text" {
+			cellBaseStyle = fmt.Sprintf("%s %s", cellBaseStyle, fieldDef.CSS)
+		}
+
+		if fieldDef.FullWidth {
+			if strings.ToLower(fieldDef.Label) == "none" {
+				htmlBuilder.WriteString(fmt.Sprintf(`
 				<tr style="border-bottom: 1px solid #e2e8f0;">
 					<td colspan="2" style="%s">%s</td>
 				</tr>`, cellBaseStyle, valStr))
-		} else {
-			htmlBuilder.WriteString(fmt.Sprintf(`
+			} else {
+				htmlBuilder.WriteString(fmt.Sprintf(`
 				<tr style="border-bottom: 1px solid #e2e8f0;">
 					<td colspan="2" style="padding: 12px 8px;">
 						<div style="font-weight: 600; color: #334155; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">%s</div>
 						<div style="%s">%s</div>
 					</td>
 				</tr>`, html.EscapeString(labelToShow), cellBaseStyle, valStr))
-		}
-	} else {
-		htmlBuilder.WriteString(fmt.Sprintf(`
+			}
+		} else {
+			htmlBuilder.WriteString(fmt.Sprintf(`
 			<tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
 				<td style="padding: 12px 8px; font-weight: 600; width: 28%%; color: #334155; font-size: 0.95rem;">%s</td>
 				<td style="%s">%s</td>
 			</tr>`, html.EscapeString(labelToShow), cellBaseStyle, valStr))
+		}
 	}
-}
 	htmlBuilder.WriteString(`</table></div>`)
 	return htmlBuilder.String(), nil
 }
+
 // v2FetchObjectMap leest een willekeurige rij uit een view/tabel in als map[string]any
 func (a *App) v2FetchObjectMap(viewName string, primaryKeyCol string, objectId string) (map[string]any, error) {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE %s = ? LIMIT 1", viewName, primaryKeyCol)
@@ -1103,4 +1146,305 @@ func (a *App) v2FetchObjectMap(viewName string, primaryKeyCol string, objectId s
 	}
 
 	return result, nil
+}
+
+// V2ReportNode stelt een knoop in de V2 rapportageboom voor
+type V2ReportNode struct {
+	ObjectID string         `json:"objectId"`
+	Level    int            `json:"level"`
+	Data     map[string]any `json:"data"`
+	Children []V2ReportNode `json:"children,omitempty"`
+}
+
+// v2FetchReportNodeRecursive haalt de view-data op voor het huidige object en bouwt recursief de kinderen op
+func (a *App) v2FetchReportNodeRecursive(viewName string, primaryKeyCol string, objectId string, currentDepth int, maxDepth int) (*V2ReportNode, error) {
+	// 1. Haal de platte map[string]any op voor dit specifieke object
+	dataMap, err := a.v2FetchObjectMap(viewName, primaryKeyCol, objectId)
+	if err != nil {
+		return nil, fmt.Errorf("fout bij ophalen V2 data voor %s: %w", objectId, err)
+	}
+
+	node := &V2ReportNode{
+		ObjectID: objectId,
+		Level:    currentDepth,
+		Data:     dataMap,
+		Children: []V2ReportNode{},
+	}
+
+	// 2. Stop als de maximale diepte is bereikt
+	if currentDepth >= maxDepth {
+		return node, nil
+	}
+
+	// 3. Lees de uitgaande_relaties kolom uit de dataMap
+	rawRel, exists := dataMap["uitgaande_relaties"]
+	if !exists || rawRel == nil {
+		return node, nil
+	}
+
+	relStr := fmt.Sprintf("%v", rawRel)
+	if strings.TrimSpace(relStr) == "" || relStr == "<nil>" {
+		return node, nil
+	}
+
+	// 4. Parse de JSON array van uitgaande relaties
+	var relations []map[string]any
+	if err := json.Unmarshal([]byte(relStr), &relations); err != nil {
+		// Als de view geen geldige JSON levert voor relaties, negeren we de kinderen stilzwijgend
+		return node, nil
+	}
+
+	// 5. Haal voor elk gekoppeld target_id recursief de kind-node op
+	for _, rel := range relations {
+		targetID, ok := rel["target_id"].(string)
+		if !ok || strings.TrimSpace(targetID) == "" {
+			continue
+		}
+
+		childNode, err := a.v2FetchReportNodeRecursive(viewName, primaryKeyCol, targetID, currentDepth+1, maxDepth)
+		if err == nil && childNode != nil {
+			node.Children = append(node.Children, *childNode)
+		}
+	}
+
+	return node, nil
+}
+
+// v2RenderNodeRecursive bouwt recursief de HTML op voor een knoop en al zijn kinderen
+func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, fields []V2FieldDef) (string, error) {
+	var htmlBuilder strings.Builder
+
+	displayTitle := fmt.Sprintf("%v", node.Data["display_title"])
+	if displayTitle == "" || displayTitle == "<nil>" {
+		displayTitle = fmt.Sprintf("Object: %s", node.ObjectID)
+	}
+
+	headerTag := getHeaderTagLevel(node.Level)
+	fontSize := getHeaderFontSize(node.Level)
+
+	htmlBuilder.WriteString(fmt.Sprintf(`
+	<div class="v2-node-wrapper level-%d" style="margin-bottom: 36px;">
+		<header class="v2-report-header" style="border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 16px;">
+			<h%d id="node-%s" class="book-main-title editable-object-heading" data-object-id="%s" style="margin: 0 0 4px 0; font-size: %s; color: #0f172a; cursor: pointer;">%s</h%d>
+			<div style="font-size: 0.8rem; color: #64748b;">Niveau %d | ID: %s</div>
+		</header>
+		
+		<table style="width: 100%%; border-collapse: collapse; margin-top: 8px;">
+`,
+		node.Level,
+		headerTag,
+		html.EscapeString(node.ObjectID),
+		html.EscapeString(node.ObjectID),
+		fontSize,
+		html.EscapeString(displayTitle),
+		headerTag,
+		node.Level,
+		html.EscapeString(node.ObjectID),
+	))
+
+	fieldsHTML := a.renderFieldsHTML(node.ObjectID, node.Data, fields)
+	htmlBuilder.WriteString(fieldsHTML)
+	htmlBuilder.WriteString(`</table></div>`)
+
+	for _, child := range node.Children {
+		childHTML, err := a.v2RenderNodeRecursive(child, viewName, fields)
+		if err == nil {
+			htmlBuilder.WriteString(childHTML)
+		}
+	}
+
+	return htmlBuilder.String(), nil
+}
+// Hulpmethodes voor opmaak per niveau
+// Helper om HTML header tag te bepalen (h1 t/m h6)
+func getHeaderTagLevel(level int) int {
+	if level >= 6 {
+		return 6
+	}
+	return level
+}
+// Helper om de lettergrootte van de kop subtiel te laten schalen per niveau
+func getHeaderFontSize(level int) string {
+	switch level {
+	case 1:
+		return "1.8rem"
+	case 2:
+		return "1.5rem"
+	case 3:
+		return "1.25rem"
+	case 4:
+		return "1.1rem"
+	case 5:
+		return "1.0rem"
+	default: // Niveau 6 t/m 10
+		return "0.9rem"
+	}
+}
+
+func getBorderForLevel(level int) string {
+	if level == 1 {
+		return "none"
+	}
+	return "3px solid #cbd5e1; padding-left: 16px" // Lichte kantlijn voor sub-niveaus
+}
+
+func (a *App) renderFieldsHTML(objectId string, dataMap map[string]any, fields []V2FieldDef) string {
+	var htmlBuilder strings.Builder
+
+	// Fallback als er geen velden geconfigureerd zijn
+	if len(fields) == 0 {
+		for key := range dataMap {
+			if key == "object_id" || key == "uitgaande_relaties" {
+				continue
+			}
+			fields = append(fields, V2FieldDef{Field: key, Label: key})
+		}
+	}
+
+	for _, fieldDef := range fields {
+		val, exists := dataMap[fieldDef.Field]
+		if !exists || val == nil {
+			continue
+		}
+
+		valStr := fmt.Sprintf("%v", val)
+		labelToShow := fieldDef.Label
+		if strings.ToLower(labelToShow) == "none" {
+			labelToShow = ""
+		} else if labelToShow == "" {
+			labelToShow = fieldDef.Field
+		}
+
+		isRelationList := fieldDef.Type == "relation_list" || strings.HasPrefix(strings.TrimSpace(valStr), "[")
+
+		if isRelationList && valStr != "" && valStr != "<nil>" {
+			var relations []map[string]any
+			if err := json.Unmarshal([]byte(valStr), &relations); err == nil {
+				if len(relations) == 0 {
+					valStr = "<em style='color: #94a3b8;'>Geen gekoppelde objecten</em>"
+				} else {
+					var relHTML strings.Builder
+					relHTML.WriteString("<ul style='margin: 0; padding-left: 18px; list-style-type: disc;'>")
+					for _, rel := range relations {
+						relHTML.WriteString(fmt.Sprintf(
+							"<li style='margin-bottom: 4px;'><strong>%v</strong> — %v <code style='font-size:0.8rem; color:#64748b;'>(%v)</code></li>",
+							html.EscapeString(fmt.Sprintf("%v", rel["relation_label"])),
+							html.EscapeString(fmt.Sprintf("%v", rel["target_label"])),
+							html.EscapeString(fmt.Sprintf("%v", rel["target_id"])),
+						))
+					}
+					relHTML.WriteString("</ul>")
+					valStr = relHTML.String()
+				}
+			}
+		} else if fieldDef.Type == "rich_text" {
+			var paramValueID string
+			if fieldDef.ParamValueIDField != "" {
+				if pvVal, ok := dataMap[fieldDef.ParamValueIDField]; ok && pvVal != nil {
+					paramValueID = fmt.Sprintf("%v", pvVal)
+				}
+			}
+
+			customStyle := "cursor: pointer;"
+			if fieldDef.CSS != "" {
+				customStyle = fmt.Sprintf("cursor: pointer; %s", fieldDef.CSS)
+			}
+
+			if paramValueID != "" {
+				valStr = fmt.Sprintf(
+					`<div class="editable-richtext" data-param-value-id="%s" data-object-id="%s" style="%s">%s</div>`,
+					html.EscapeString(paramValueID),
+					html.EscapeString(objectId),
+					html.EscapeString(customStyle),
+					valStr,
+				)
+			} else {
+				valStr = fmt.Sprintf(`<div class="static-richtext" style="%s">%s</div>`, html.EscapeString(fieldDef.CSS), valStr)
+			}
+		} else {
+			valStr = html.EscapeString(valStr)
+		}
+
+		cellBaseStyle := "padding: 8px; color: #0f172a; font-size: 0.95rem; line-height: 1.5;"
+		if fieldDef.CSS != "" && fieldDef.Type != "rich_text" {
+			cellBaseStyle = fmt.Sprintf("%s %s", cellBaseStyle, fieldDef.CSS)
+		}
+
+		if fieldDef.FullWidth {
+			if strings.ToLower(fieldDef.Label) == "none" {
+				htmlBuilder.WriteString(fmt.Sprintf(`
+					<tr style="border-bottom: 1px solid #e2e8f0;">
+						<td colspan="2" style="%s">%s</td>
+					</tr>`, cellBaseStyle, valStr))
+			} else {
+				htmlBuilder.WriteString(fmt.Sprintf(`
+					<tr style="border-bottom: 1px solid #e2e8f0;">
+						<td colspan="2" style="padding: 8px;">
+							<div style="font-weight: 600; color: #334155; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">%s</div>
+							<div style="%s">%s</div>
+						</td>
+					</tr>`, html.EscapeString(labelToShow), cellBaseStyle, valStr))
+			}
+		} else {
+			htmlBuilder.WriteString(fmt.Sprintf(`
+				<tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
+					<td style="padding: 8px; font-weight: 600; width: 28%%; color: #334155; font-size: 0.9rem;">%s</td>
+					<td style="%s">%s</td>
+				</tr>`, html.EscapeString(labelToShow), cellBaseStyle, valStr))
+		}
+	}
+
+	return htmlBuilder.String()
+}
+// v2GenerateTOC bouwt recursief de HTML-inhoudsopgave op
+func (a *App) v2GenerateTOC(node V2ReportNode, config TOCConfig) string {
+	if !config.Enabled {
+		return ""
+	}
+
+	title := config.Title
+	if strings.TrimSpace(title) == "" {
+		title = "Inhoudsopgave"
+	}
+
+	maxDepth := config.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = 2 // Standaard fallback als niet opgegeven
+	}
+
+	var tocBuilder strings.Builder
+	tocBuilder.WriteString(fmt.Sprintf(`
+		<nav class="v2-toc-container" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px 24px; margin-bottom: 32px;">
+			<h2 style="margin-top: 0; margin-bottom: 12px; font-size: 1.25rem; color: #1e293b;">%s</h2>
+			<ul style="list-style-type: none; padding-left: 0; margin: 0;">
+	`, html.EscapeString(title)))
+
+	a.v2BuildTOCItems(node, 1, maxDepth, &tocBuilder)
+
+	tocBuilder.WriteString(`</ul></nav>`)
+	return tocBuilder.String()
+}
+
+// v2BuildTOCItems helpt recursief bij het toevoegen van regels in de TOC
+func (a *App) v2BuildTOCItems(node V2ReportNode, currentDepth int, maxDepth int, builder *strings.Builder) {
+	if currentDepth > maxDepth {
+		return
+	}
+
+	displayTitle := fmt.Sprintf("%v", node.Data["display_title"])
+	if displayTitle == "" || displayTitle == "<nil>" {
+		displayTitle = fmt.Sprintf("Object: %s", node.ObjectID)
+	}
+
+	indentPx := (currentDepth - 1) * 16
+
+	builder.WriteString(fmt.Sprintf(`
+		<li style="margin-bottom: 6px; padding-left: %dpx;">
+			<a href="#node-%s" style="color: #2563eb; text-decoration: none; font-size: 0.95rem;">%s</a>
+		</li>
+	`, indentPx, html.EscapeString(node.ObjectID), html.EscapeString(displayTitle)))
+
+	for _, child := range node.Children {
+		a.v2BuildTOCItems(child, currentDepth+1, maxDepth, builder)
+	}
 }

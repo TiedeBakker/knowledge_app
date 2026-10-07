@@ -104,6 +104,7 @@ export namespace main {
 	    enabled: boolean;
 	    max_depth: number;
 	    title: string;
+	    include_numbering: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new TOCConfig(source);
@@ -114,6 +115,7 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	        this.max_depth = source["max_depth"];
 	        this.title = source["title"];
+	        this.include_numbering = source["include_numbering"];
 	    }
 	}
 	export class GlobalSettings {

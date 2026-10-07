@@ -24,9 +24,10 @@ type TemplateFilter struct {
 }
 
 type TOCConfig struct {
-	Enabled  bool   `json:"enabled"`
-	MaxDepth int    `json:"max_depth"`
-	Title    string `json:"title"`
+	Enabled          bool   `json:"enabled"`
+	MaxDepth         int    `json:"max_depth"`
+	Title            string `json:"title"`
+	IncludeNumbering bool   `json:"include_numbering"` // <-- NIEUW: nummering in TOC aan-/uitzetten
 }
 
 // NumberingConfig bepaalt hoe niveaus of het gehele document genummerd worden
@@ -60,7 +61,13 @@ type V2GlobalSettings struct {
 	MaxDepth int       `json:"max_depth"` // <- Nieuw: instelbare maximale diepte
 }
 
-// V2ReportConfig stelt de complete template JSON voor
+type LevelConfig struct {
+	NumberingStyle string       `json:"numbering_style"` // "numeric", "alpha_upper", "alpha_lower", "roman_upper", "roman_lower", "none"
+	InheritParent  *bool        `json:"inherit_parent"`  // Pointer zodat we nil (default true) kunnen onderscheiden van explicit false
+	HeaderCSS      string       `json:"header_css"`
+	Fields         []V2FieldDef `json:"fields"`
+}
+
 type V2ReportConfig struct {
 	Version    int    `json:"version"`
 	Type       string `json:"type"`
@@ -68,8 +75,9 @@ type V2ReportConfig struct {
 		ViewName   string `json:"view_name"`
 		PrimaryKey string `json:"primary_key"`
 	} `json:"data_source"`
-	GlobalSettings V2GlobalSettings `json:"global_settings"`
-	Fields         []V2FieldDef     `json:"fields"`
+	GlobalSettings V2GlobalSettings       `json:"global_settings"`
+	Fields         []V2FieldDef           `json:"fields"`
+	Levels         map[string]LevelConfig `json:"levels"`
 }
 
 type RootLevelConfig struct {
@@ -405,12 +413,23 @@ func (a *App) buildReportHTML(node *ReportNode, body *strings.Builder, toc *stri
 		// 1. Globale Inhoudsopgave item toevoegen
 		if toc != nil && includeInTOC && ruleLevel <= tocMaxDepth {
 			indentClass := fmt.Sprintf("toc-level-%d", ruleLevel)
+
+			// Check of nummering getoond moet worden in TOC
+			showNum := true
+			if config != nil {
+				showNum = config.GlobalSettings.TOC.IncludeNumbering
+			}
+
+			numHTML := ""
+			if showNum && node.Numbering != "" {
+				numHTML = fmt.Sprintf(`<span class="toc-num">%s</span> `, html.EscapeString(node.Numbering))
+			}
+
 			toc.WriteString(fmt.Sprintf(
-				`<li class="%s"><a href="#%s"><span class="toc-num">%s</span> %s</a></li>`,
-				indentClass, anchorID, node.Numbering, html.EscapeString(title),
+				`<li class="%s"><a href="#%s">%s%s</a></li>`,
+				indentClass, anchorID, numHTML, html.EscapeString(title),
 			))
 		}
-
 		// 2. HTML Sectie openen
 		body.WriteString(fmt.Sprintf(`<section id="%s" class="report-section level-%d" data-object-id="%s">`, anchorID, ruleLevel, node.ObjectID))
 
@@ -756,20 +775,6 @@ func formatNumberFormat(index int, style string) string {
 	}
 }
 
-// toRoman converteert een getal naar Romeinse cijfers (I, II, III, IV, etc.)
-func toRoman(num int) string {
-	values := []int{1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1}
-	symbols := []string{"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"}
-	var result strings.Builder
-	for i := 0; i < len(values); i++ {
-		for num >= values[i] {
-			num -= values[i]
-			result.WriteString(symbols[i])
-		}
-	}
-	return result.String()
-}
-
 func calculateChildPrefix(parentPrefix string, targetLevel, childIndex int, config *ReportTemplateConfig) string {
 	// childLevel := parentLevel + 1  <-- DEZE REGEL VERWIJDEREN!
 	childLevel := targetLevel
@@ -919,16 +924,20 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 
 	viewName := config.DataSource.ViewName
 	pkCol := config.DataSource.PrimaryKey
-	if viewName == "" { viewName = DefaultV2View }
-	if pkCol == "" { pkCol = DefaultV2PrimaryKey }
+	if viewName == "" {
+		viewName = DefaultV2View
+	}
+	if pkCol == "" {
+		pkCol = DefaultV2PrimaryKey
+	}
 
 	// 2. Bepaal maximale diepte (Standaard: 5, Absoluut Maximum: 10)
 	maxDepth := config.GlobalSettings.MaxDepth
 	if maxDepth <= 0 {
-		maxDepth = 5 // Standaard als niks is ingesteld
+		maxDepth = 5
 	}
 	if maxDepth > 10 {
-		maxDepth = 10 // Absoluut maximum voor hele speciale situaties
+		maxDepth = 10
 	}
 
 	// 3. Gehele boomstructuur ophalen tot maxDepth
@@ -951,9 +960,10 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 	`, html.EscapeString(rootTitle))
 
 	// 5. TOC & Boom HTML genereren
-	tocHTML := a.v2GenerateTOC(*nodeTree, config.GlobalSettings.TOC)
+	tocHTML := a.v2GenerateTOC(*nodeTree, config.GlobalSettings.TOC, config.Levels)
 
-	renderedHTML, err := a.v2RenderNodeRecursive(*nodeTree, viewName, config.Fields)
+	initialPath := []PathNode{{Index: 1, Level: 1}}
+	renderedHTML, err := a.v2RenderNodeRecursive(*nodeTree, viewName, config, initialPath)
 	if err != nil {
 		return "", fmt.Errorf("v2 boom HTML renderen mislukt: %w", err)
 	}
@@ -967,6 +977,7 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 
 	return fullWrapper, nil
 }
+
 // v2RenderHTML genereert de HTML voor de v2-weergave
 // v2RenderHTML genereert de HTML voor de v2-weergave
 func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]any, fields []V2FieldDef) (string, error) {
@@ -1211,21 +1222,39 @@ func (a *App) v2FetchReportNodeRecursive(viewName string, primaryKeyCol string, 
 }
 
 // v2RenderNodeRecursive bouwt recursief de HTML op voor een knoop en al zijn kinderen
-func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, fields []V2FieldDef) (string, error) {
+func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V2ReportConfig, path []PathNode) (string, error) {
 	var htmlBuilder strings.Builder
+
+	levelStr := fmt.Sprintf("%d", node.Level)
+	levelCfg, hasLevelCfg := config.Levels[levelStr]
+
+	// Velden bepalen
+	activeFields := config.Fields
+	if hasLevelCfg && len(levelCfg.Fields) > 0 {
+		activeFields = levelCfg.Fields
+	}
+
+	// Styling bepalen
+	headerCSS := getHeaderCSSForLevel(node.Level)
+	if hasLevelCfg && levelCfg.HeaderCSS != "" {
+		headerCSS = levelCfg.HeaderCSS
+	}
+
+	// Nummering prefix opbouwen
+	numberPrefix := formatHierarchyNumber(path, config.Levels)
 
 	displayTitle := fmt.Sprintf("%v", node.Data["display_title"])
 	if displayTitle == "" || displayTitle == "<nil>" {
 		displayTitle = fmt.Sprintf("Object: %s", node.ObjectID)
 	}
+	fullTitle := numberPrefix + displayTitle
 
 	headerTag := getHeaderTagLevel(node.Level)
-	fontSize := getHeaderFontSize(node.Level)
 
 	htmlBuilder.WriteString(fmt.Sprintf(`
 	<div class="v2-node-wrapper level-%d" style="margin-bottom: 36px;">
-		<header class="v2-report-header" style="border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 16px;">
-			<h%d id="node-%s" class="book-main-title editable-object-heading" data-object-id="%s" style="margin: 0 0 4px 0; font-size: %s; color: #0f172a; cursor: pointer;">%s</h%d>
+		<header class="v2-report-header" style="margin-bottom: 16px;">
+			<h%d id="node-%s" class="book-main-title editable-object-heading" data-object-id="%s" style="margin: 0 0 4px 0; cursor: pointer; %s">%s</h%d>
 			<div style="font-size: 0.8rem; color: #64748b;">Niveau %d | ID: %s</div>
 		</header>
 		
@@ -1235,19 +1264,21 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, fields [
 		headerTag,
 		html.EscapeString(node.ObjectID),
 		html.EscapeString(node.ObjectID),
-		fontSize,
-		html.EscapeString(displayTitle),
+		headerCSS,
+		html.EscapeString(fullTitle),
 		headerTag,
 		node.Level,
 		html.EscapeString(node.ObjectID),
 	))
 
-	fieldsHTML := a.renderFieldsHTML(node.ObjectID, node.Data, fields)
+	fieldsHTML := a.renderFieldsHTML(node.ObjectID, node.Data, activeFields)
 	htmlBuilder.WriteString(fieldsHTML)
 	htmlBuilder.WriteString(`</table></div>`)
 
-	for _, child := range node.Children {
-		childHTML, err := a.v2RenderNodeRecursive(child, viewName, fields)
+	// Kinderen recursief verwerken met uitgebreid pad
+	for i, child := range node.Children {
+		childPath := append(append([]PathNode{}, path...), PathNode{Index: i + 1, Level: child.Level})
+		childHTML, err := a.v2RenderNodeRecursive(child, viewName, config, childPath)
 		if err == nil {
 			htmlBuilder.WriteString(childHTML)
 		}
@@ -1255,6 +1286,7 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, fields [
 
 	return htmlBuilder.String(), nil
 }
+
 // Hulpmethodes voor opmaak per niveau
 // Helper om HTML header tag te bepalen (h1 t/m h6)
 func getHeaderTagLevel(level int) int {
@@ -1263,21 +1295,40 @@ func getHeaderTagLevel(level int) int {
 	}
 	return level
 }
-// Helper om de lettergrootte van de kop subtiel te laten schalen per niveau
-func getHeaderFontSize(level int) string {
+
+// // Helper om de lettergrootte van de kop subtiel te laten schalen per niveau
+// func getHeaderFontSize(level int) string {
+// 	switch level {
+// 	case 1:
+// 		return "1.8rem"
+// 	case 2:
+// 		return "1.5rem"
+// 	case 3:
+// 		return "1.25rem"
+// 	case 4:
+// 		return "1.1rem"
+// 	case 5:
+// 		return "1.0rem"
+// 	default: // Niveau 6 t/m 10
+// 		return "0.9rem"
+// 	}
+// }
+
+// Helper voor standaard CSS van de koppen als er geen custom header_css in de template staat
+func getHeaderCSSForLevel(level int) string {
 	switch level {
 	case 1:
-		return "1.8rem"
+		return "font-size: 1.8rem; color: #0f172a; border-bottom: 2px solid #0f172a; padding-bottom: 6px;"
 	case 2:
-		return "1.5rem"
+		return "font-size: 1.5rem; color: #1e293b; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;"
 	case 3:
-		return "1.25rem"
+		return "font-size: 1.25rem; color: #334155;"
 	case 4:
-		return "1.1rem"
+		return "font-size: 1.1rem; color: #475569;"
 	case 5:
-		return "1.0rem"
-	default: // Niveau 6 t/m 10
-		return "0.9rem"
+		return "font-size: 1.0rem; color: #64748b;"
+	default:
+		return "font-size: 0.9rem; color: #64748b;"
 	}
 }
 
@@ -1396,8 +1447,9 @@ func (a *App) renderFieldsHTML(objectId string, dataMap map[string]any, fields [
 
 	return htmlBuilder.String()
 }
+
 // v2GenerateTOC bouwt recursief de HTML-inhoudsopgave op
-func (a *App) v2GenerateTOC(node V2ReportNode, config TOCConfig) string {
+func (a *App) v2GenerateTOC(node V2ReportNode, config TOCConfig, levels map[string]LevelConfig) string {
 	if !config.Enabled {
 		return ""
 	}
@@ -1419,14 +1471,15 @@ func (a *App) v2GenerateTOC(node V2ReportNode, config TOCConfig) string {
 			<ul style="list-style-type: none; padding-left: 0; margin: 0;">
 	`, html.EscapeString(title)))
 
-	a.v2BuildTOCItems(node, 1, maxDepth, &tocBuilder)
+	initialPath := []PathNode{{Index: 1, Level: 1}}
+	a.v2BuildTOCItems(node, 1, maxDepth, initialPath, config, levels, &tocBuilder)
 
 	tocBuilder.WriteString(`</ul></nav>`)
 	return tocBuilder.String()
 }
 
 // v2BuildTOCItems helpt recursief bij het toevoegen van regels in de TOC
-func (a *App) v2BuildTOCItems(node V2ReportNode, currentDepth int, maxDepth int, builder *strings.Builder) {
+func (a *App) v2BuildTOCItems(node V2ReportNode, currentDepth int, maxDepth int, path []PathNode, config TOCConfig, levels map[string]LevelConfig, builder *strings.Builder) {
 	if currentDepth > maxDepth {
 		return
 	}
@@ -1436,15 +1489,122 @@ func (a *App) v2BuildTOCItems(node V2ReportNode, currentDepth int, maxDepth int,
 		displayTitle = fmt.Sprintf("Object: %s", node.ObjectID)
 	}
 
+	// Nummering ophalen indien gewenst
+	numberPrefix := ""
+	if config.IncludeNumbering {
+		numberPrefix = formatHierarchyNumber(path, levels)
+	}
+
+	fullTitle := numberPrefix + displayTitle
 	indentPx := (currentDepth - 1) * 16
 
 	builder.WriteString(fmt.Sprintf(`
 		<li style="margin-bottom: 6px; padding-left: %dpx;">
 			<a href="#node-%s" style="color: #2563eb; text-decoration: none; font-size: 0.95rem;">%s</a>
 		</li>
-	`, indentPx, html.EscapeString(node.ObjectID), html.EscapeString(displayTitle)))
+	`, indentPx, html.EscapeString(node.ObjectID), html.EscapeString(fullTitle)))
 
-	for _, child := range node.Children {
-		a.v2BuildTOCItems(child, currentDepth+1, maxDepth, builder)
+	for i, child := range node.Children {
+		childPath := append(append([]PathNode{}, path...), PathNode{Index: i + 1, Level: child.Level})
+		a.v2BuildTOCItems(child, currentDepth+1, maxDepth, childPath, config, levels, builder)
 	}
+}
+func formatSegment(num int, style string) string {
+	switch style {
+	case "alpha_upper":
+		return string(rune('A' + (num-1)%26))
+	case "alpha_lower":
+		return string(rune('a' + (num-1)%26))
+	case "roman_upper":
+		return toRoman(num)
+	case "roman_lower":
+		return strings.ToLower(toRoman(num))
+	case "none":
+		return ""
+	default: // "numeric"
+		return fmt.Sprintf("%d", num)
+	}
+}
+
+func toRoman(number int) string {
+	maximalDict := []struct {
+		value  int
+		symbol string
+	}{
+		{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"},
+		{100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"},
+		{10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"},
+	}
+	roman := ""
+	for _, item := range maximalDict {
+		for number >= item.value {
+			roman += item.symbol
+			number -= item.value
+		}
+	}
+	return roman
+}
+
+type PathNode struct {
+	Index int
+	Level int
+}
+
+func formatHierarchyNumber(path []PathNode, levels map[string]LevelConfig) string {
+	if len(path) == 0 {
+		return ""
+	}
+
+	currentLevel := path[len(path)-1].Level
+	currentLevelStr := fmt.Sprintf("%d", currentLevel)
+	currentCfg, hasCurrentCfg := levels[currentLevelStr]
+
+	// Check inherit_parent (default is true)
+	inheritParent := true
+	if hasCurrentCfg && currentCfg.InheritParent != nil {
+		inheritParent = *currentCfg.InheritParent
+	}
+
+	currentStyle := "numeric"
+	if hasCurrentCfg && currentCfg.NumberingStyle != "" {
+		currentStyle = currentCfg.NumberingStyle
+	}
+
+	if currentStyle == "none" {
+		return ""
+	}
+
+	// Als er niet overgeërfd wordt, tonen we alleen het eigen segment (bijv. "a.")
+	if !inheritParent {
+		segment := formatSegment(path[len(path)-1].Index, currentStyle)
+		if segment == "" {
+			return ""
+		}
+		return segment + ". "
+	}
+
+	// Wel overerving: bouw het volledige pad op (bijv. "1.1.a")
+	var parts []string
+	for _, p := range path {
+		lvlStr := fmt.Sprintf("%d", p.Level)
+		cfg, hasCfg := levels[lvlStr]
+
+		style := "numeric"
+		if hasCfg && cfg.NumberingStyle != "" {
+			style = cfg.NumberingStyle
+		}
+
+		if style != "none" {
+			seg := formatSegment(p.Index, style)
+			if seg != "" {
+				parts = append(parts, seg)
+			}
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return strings.Join(parts, ".") + " "
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -61,11 +62,18 @@ type V2GlobalSettings struct {
 	MaxDepth int       `json:"max_depth"` // <- Nieuw: instelbare maximale diepte
 }
 
+type SectionTOCConfig struct {
+	Enabled  bool   `json:"enabled"`
+	MaxDepth int    `json:"max_depth"` // Bijv. 1 of 2 niveaus dieper dan het huidige niveau
+	Title    string `json:"title"`     // Bijv. "In dit onderdeel"
+}
+
 type LevelConfig struct {
-	NumberingStyle string       `json:"numbering_style"` // "numeric", "alpha_upper", "alpha_lower", "roman_upper", "roman_lower", "none"
-	InheritParent  *bool        `json:"inherit_parent"`  // Pointer zodat we nil (default true) kunnen onderscheiden van explicit false
-	HeaderCSS      string       `json:"header_css"`
-	Fields         []V2FieldDef `json:"fields"`
+	NumberingStyle string            `json:"numbering_style"` // "numeric", "alpha_upper", etc.
+	InheritParent  *bool             `json:"inherit_parent"`
+	HeaderCSS      string            `json:"header_css"`
+	Fields         []V2FieldDef      `json:"fields"`
+	SectionTOC     *SectionTOCConfig `json:"section_toc,omitempty"` // <-- NIEUW: optionele level-TOC
 }
 
 type V2ReportConfig struct {
@@ -957,7 +965,7 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 			<h1 style="font-size: 2.2rem; font-weight: 700; color: #0f172a; margin: 0 0 8px 0; letter-spacing: -0.02em;">%s</h1>
 			<div style="font-size: 0.85rem; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Systeem Rapportage</div>
 		</div>
-	`, html.EscapeString(rootTitle))
+	`, formatInlineHTML(rootTitle))
 
 	// 5. TOC & Boom HTML genereren
 	tocHTML := a.v2GenerateTOC(*nodeTree, config.GlobalSettings.TOC, config.Levels)
@@ -978,7 +986,6 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 	return fullWrapper, nil
 }
 
-// v2RenderHTML genereert de HTML voor de v2-weergave
 // v2RenderHTML genereert de HTML voor de v2-weergave
 func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]any, fields []V2FieldDef) (string, error) {
 	var htmlBuilder strings.Builder
@@ -1037,6 +1044,11 @@ func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]
 				if len(relations) == 0 {
 					valStr = "<em style='color: #94a3b8;'>Geen gekoppelde objecten</em>"
 				} else {
+					// NIEUW: Sorteer op volgorde
+					sort.SliceStable(relations, func(i, j int) bool {
+						return getVolgordeValue(relations[i]["volgorde"]) < getVolgordeValue(relations[j]["volgorde"])
+					})
+
 					var relHTML strings.Builder
 					relHTML.WriteString("<ul style='margin: 0; padding-left: 18px; list-style-type: disc;'>")
 					for _, rel := range relations {
@@ -1077,7 +1089,7 @@ func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]
 				valStr = fmt.Sprintf(`<div class="static-richtext" style="%s">%s</div>`, html.EscapeString(fieldDef.CSS), valStr)
 			}
 		} else {
-			valStr = html.EscapeString(valStr)
+			valStr = formatInlineHTML(valStr)
 		}
 
 		// ---------------------------------------------------------------------
@@ -1201,9 +1213,13 @@ func (a *App) v2FetchReportNodeRecursive(viewName string, primaryKeyCol string, 
 	// 4. Parse de JSON array van uitgaande relaties
 	var relations []map[string]any
 	if err := json.Unmarshal([]byte(relStr), &relations); err != nil {
-		// Als de view geen geldige JSON levert voor relaties, negeren we de kinderen stilzwijgend
 		return node, nil
 	}
+
+	// NIEUW: Sorteer relaties op het veld "volgorde" (met nummer-conversie)
+	sort.SliceStable(relations, func(i, j int) bool {
+		return getVolgordeValue(relations[i]["volgorde"]) < getVolgordeValue(relations[j]["volgorde"])
+	})
 
 	// 5. Haal voor elk gekoppeld target_id recursief de kind-node op
 	for _, rel := range relations {
@@ -1247,35 +1263,46 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V
 	if displayTitle == "" || displayTitle == "<nil>" {
 		displayTitle = fmt.Sprintf("Object: %s", node.ObjectID)
 	}
-	fullTitle := numberPrefix + displayTitle
+	// Gebruik de generieke formattering in plaats van html.EscapeString
+	safeTitle := formatInlineHTML(displayTitle)
+	fullTitle := numberPrefix + safeTitle
 
 	headerTag := getHeaderTagLevel(node.Level)
 
+	// 1. Render de Node Container en de Header
 	htmlBuilder.WriteString(fmt.Sprintf(`
 	<div class="v2-node-wrapper level-%d" style="margin-bottom: 36px;">
 		<header class="v2-report-header" style="margin-bottom: 16px;">
 			<h%d id="node-%s" class="book-main-title editable-object-heading" data-object-id="%s" style="margin: 0 0 4px 0; cursor: pointer; %s">%s</h%d>
 			<div style="font-size: 0.8rem; color: #64748b;">Niveau %d | ID: %s</div>
 		</header>
-		
-		<table style="width: 100%%; border-collapse: collapse; margin-top: 8px;">
 `,
 		node.Level,
 		headerTag,
 		html.EscapeString(node.ObjectID),
 		html.EscapeString(node.ObjectID),
 		headerCSS,
-		html.EscapeString(fullTitle),
+		fullTitle,
 		headerTag,
 		node.Level,
 		html.EscapeString(node.ObjectID),
 	))
 
+	// ---------------------------------------------------------------------
+	// 2. HIER KOMT DE SECTIE-TOC (Inhoudsopgave van onderliggende kinderen)
+	// ---------------------------------------------------------------------
+	if hasLevelCfg && levelCfg.SectionTOC != nil && levelCfg.SectionTOC.Enabled {
+		sectionTOChtml := a.v2GenerateSectionTOC(node, *levelCfg.SectionTOC, path, config.Levels)
+		htmlBuilder.WriteString(sectionTOChtml)
+	}
+
+	// 3. Render de veldentabel van het huidige object
+	htmlBuilder.WriteString(`<table style="width: 100%; border-collapse: collapse; margin-top: 8px;">`)
 	fieldsHTML := a.renderFieldsHTML(node.ObjectID, node.Data, activeFields)
 	htmlBuilder.WriteString(fieldsHTML)
 	htmlBuilder.WriteString(`</table></div>`)
 
-	// Kinderen recursief verwerken met uitgebreid pad
+	// 4. Kinderen recursief verwerken met uitgebreid pad
 	for i, child := range node.Children {
 		childPath := append(append([]PathNode{}, path...), PathNode{Index: i + 1, Level: child.Level})
 		childHTML, err := a.v2RenderNodeRecursive(child, viewName, config, childPath)
@@ -1295,24 +1322,6 @@ func getHeaderTagLevel(level int) int {
 	}
 	return level
 }
-
-// // Helper om de lettergrootte van de kop subtiel te laten schalen per niveau
-// func getHeaderFontSize(level int) string {
-// 	switch level {
-// 	case 1:
-// 		return "1.8rem"
-// 	case 2:
-// 		return "1.5rem"
-// 	case 3:
-// 		return "1.25rem"
-// 	case 4:
-// 		return "1.1rem"
-// 	case 5:
-// 		return "1.0rem"
-// 	default: // Niveau 6 t/m 10
-// 		return "0.9rem"
-// 	}
-// }
 
 // Helper voor standaard CSS van de koppen als er geen custom header_css in de template staat
 func getHeaderCSSForLevel(level int) string {
@@ -1374,6 +1383,11 @@ func (a *App) renderFieldsHTML(objectId string, dataMap map[string]any, fields [
 				if len(relations) == 0 {
 					valStr = "<em style='color: #94a3b8;'>Geen gekoppelde objecten</em>"
 				} else {
+					// NIEUW: Sorteer op volgorde
+					sort.SliceStable(relations, func(i, j int) bool {
+						return getVolgordeValue(relations[i]["volgorde"]) < getVolgordeValue(relations[j]["volgorde"])
+					})
+
 					var relHTML strings.Builder
 					relHTML.WriteString("<ul style='margin: 0; padding-left: 18px; list-style-type: disc;'>")
 					for _, rel := range relations {
@@ -1413,7 +1427,7 @@ func (a *App) renderFieldsHTML(objectId string, dataMap map[string]any, fields [
 				valStr = fmt.Sprintf(`<div class="static-richtext" style="%s">%s</div>`, html.EscapeString(fieldDef.CSS), valStr)
 			}
 		} else {
-			valStr = html.EscapeString(valStr)
+			valStr = formatInlineHTML(valStr)
 		}
 
 		cellBaseStyle := "padding: 8px; color: #0f172a; font-size: 0.95rem; line-height: 1.5;"
@@ -1488,21 +1502,21 @@ func (a *App) v2BuildTOCItems(node V2ReportNode, currentDepth int, maxDepth int,
 	if displayTitle == "" || displayTitle == "<nil>" {
 		displayTitle = fmt.Sprintf("Object: %s", node.ObjectID)
 	}
-
+	safeTitle := formatInlineHTML(displayTitle)
 	// Nummering ophalen indien gewenst
 	numberPrefix := ""
 	if config.IncludeNumbering {
 		numberPrefix = formatHierarchyNumber(path, levels)
 	}
 
-	fullTitle := numberPrefix + displayTitle
+	fullTitle := numberPrefix + safeTitle
 	indentPx := (currentDepth - 1) * 16
 
 	builder.WriteString(fmt.Sprintf(`
 		<li style="margin-bottom: 6px; padding-left: %dpx;">
 			<a href="#node-%s" style="color: #2563eb; text-decoration: none; font-size: 0.95rem;">%s</a>
 		</li>
-	`, indentPx, html.EscapeString(node.ObjectID), html.EscapeString(fullTitle)))
+	`, indentPx, html.EscapeString(node.ObjectID), fullTitle))
 
 	for i, child := range node.Children {
 		childPath := append(append([]PathNode{}, path...), PathNode{Index: i + 1, Level: child.Level})
@@ -1607,4 +1621,124 @@ func formatHierarchyNumber(path []PathNode, levels map[string]LevelConfig) strin
 	}
 
 	return strings.Join(parts, ".") + " "
+}
+
+// v2GenerateSectionTOC bouwt een TOC voor enkel de sub-nodes van de huidige node
+func (a *App) v2GenerateSectionTOC(currentNode V2ReportNode, config SectionTOCConfig, currentPath []PathNode, globalLevels map[string]LevelConfig) string {
+	if !config.Enabled || len(currentNode.Children) == 0 {
+		return ""
+	}
+
+	title := config.Title
+	if strings.TrimSpace(title) == "" {
+		title = "In dit onderdeel"
+	}
+
+	maxDepth := config.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = 1 // Standaard 1 niveau dieper
+	}
+
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf(`
+		<div class="v2-section-toc" style="background-color: #f1f5f9; border-left: 4px solid #0284c7; padding: 12px 16px; margin: 16px 0 24px 0; border-radius: 0 4px 4px 0;">
+			<div style="font-weight: 600; font-size: 0.9rem; color: #0369a1; margin-bottom: 8px;">%s</div>
+			<ul style="list-style-type: none; padding-left: 0; margin: 0; font-size: 0.88rem;">
+	`, html.EscapeString(title)))
+
+	// Doorloop alleen de directe kinderen (en eventueel kleinkinderen tot maxDepth)
+	a.v2BuildSectionTOCItems(currentNode.Children, 1, maxDepth, currentPath, globalLevels, &builder)
+
+	builder.WriteString(`</ul></div>`)
+	return builder.String()
+}
+
+func (a *App) v2BuildSectionTOCItems(nodes []V2ReportNode, currentRelativeDepth int, maxRelativeDepth int, parentPath []PathNode, globalLevels map[string]LevelConfig, builder *strings.Builder) {
+	if currentRelativeDepth > maxRelativeDepth {
+		return
+	}
+
+	for i, child := range nodes {
+		childPath := append(append([]PathNode{}, parentPath...), PathNode{Index: i + 1, Level: child.Level})
+
+		displayTitle := fmt.Sprintf("%v", child.Data["display_title"])
+		if displayTitle == "" || displayTitle == "<nil>" {
+			displayTitle = fmt.Sprintf("Object: %s", child.ObjectID)
+		}
+
+		safeTitle := formatInlineHTML(displayTitle)
+		numberPrefix := formatHierarchyNumber(childPath, globalLevels)
+		fullTitle := numberPrefix + safeTitle
+		indentPx := (currentRelativeDepth - 1) * 12
+
+		builder.WriteString(fmt.Sprintf(`
+			<li style="margin-bottom: 4px; padding-left: %dpx;">
+				<a href="#node-%s" style="color: #0284c7; text-decoration: none;">%s</a>
+			</li>
+		`, indentPx, html.EscapeString(child.ObjectID), fullTitle)) // Let
+
+		if len(child.Children) > 0 && currentRelativeDepth < maxRelativeDepth {
+			a.v2BuildSectionTOCItems(child.Children, currentRelativeDepth+1, maxRelativeDepth, childPath, globalLevels, builder)
+		}
+	}
+}
+
+// Helperfunctie om de waarde van "volgorde" om te zetten naar int
+func getVolgordeValue(v any) int {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return int(val)
+	case int:
+		return val
+	case string:
+		var parsed int
+		fmt.Sscanf(val, "%d", &parsed)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+// formatInlineHTML escaped standaard gevaarlijke karakters, maar behoudt veilige opmaaktags zoals <i>, <em>, <b>, <strong>
+func formatInlineHTML(input string) string {
+	if input == "" {
+		return ""
+	}
+
+	// 1. Escape eerst de volledige string veilig tegen XSS / HTML-injectie
+	safe := html.EscapeString(input)
+
+	// 2. Zet ge-escapete opmaaktags weer terug naar echte HTML-tags
+	// Ondersteunt zowel <i>...</i> als <em>...</em> en <b>...</b>, <strong>...</strong>
+	replacements := map[string]string{
+		"&lt;i&gt;":       "<i>",
+		"&lt;/i&gt;":      "</i>",
+		"&lt;em&gt;":      "<em>",
+		"&lt;/em&gt;":     "</em>",
+		"&lt;b&gt;":       "<b>",
+		"&lt;/b&gt;":      "</b>",
+		"&lt;strong&gt;":  "<strong>",
+		"&lt;/strong&gt;": "</strong>",
+		"&lt;small&gt;":   "<small>",
+		"&lt;/small&gt;":  "</small>",
+		"&lt;sup&gt;":     "<sup>",
+		"&lt;/sup&gt;":    "</sup>",
+		"&lt;sub&gt;":     "<sub>",
+		"&lt;/sub&gt;":    "</sub>",
+		"&lt;ins&gt;":     "<ins>",
+		"&lt;/ins&gt;":    "</ins>",
+		"&lt;del&gt;":     "<del>",
+		"&lt;/del&gt;":    "</del>",
+		"&lt;mark&gt;":    "<mark>",
+		"&lt;/mark&gt;":   "</mark>",
+	}
+
+	for escaped, unescaped := range replacements {
+		safe = strings.ReplaceAll(safe, escaped, unescaped)
+	}
+
+	return safe
 }

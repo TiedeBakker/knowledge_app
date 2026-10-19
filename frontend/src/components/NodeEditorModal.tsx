@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import './NodeEditorModal.css';
-import { GetParametersForTarget, GetRelationsForTarget, SaveRelationValue } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import { RelationEditorModal } from './RelationEditorModal';
 import { ParameterValueEditorModal } from './ParameterValueEditorModal';
 import { getInboundRelationLabel, getOutboundRelationLabel } from '../utils/relationUtils';
 import { isoToLocalDatetime, localDatetimeToIso, formatDisplayDateTime } from '../utils/dateUtils';
 import { MasterDataEditorModal } from './MasterDataEditorModal';
+import { GetParametersForTarget, GetRelationsForTarget, SaveRelationValue} from '../../wailsjs/go/main/App';
+import { BatchSubObjectModal } from './BatchSubObjectModal';
 
 interface Props {
   node: main.ObjectEntity | null;
@@ -25,7 +26,7 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
   const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
-   // States voor MasterDataEditorModal
+  // States voor MasterDataEditorModal
   const [isMasterDataOpen, setIsMasterDataOpen] = useState<boolean>(false);
   const [masterDataTab, setMasterDataTab] = useState<'parameters' | 'units' | 'relations'>('parameters');
 
@@ -45,6 +46,10 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
   const [isParamModalOpen, setIsParamModalOpen] = useState<boolean>(false);
   const [isMeetwaardeMode, setIsMeetwaardeMode] = useState<boolean>(false);
 
+  // State voor de batch-subobject generator modal
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState<boolean>(false);
+ 
+ 
   useEffect(() => {
     if (node && isOpen) {
       setInitialData({ ...node });
@@ -400,9 +405,27 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
           <div style={{ flex: 1, border: '1px solid #e0e0e0', borderRadius: '6px', padding: '16px', background: '#fafafa' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <h3 style={{ margin: 0, fontSize: '1rem', color: '#c62828' }}>► Uitgaand</h3>
-              <button onClick={handleAddOutbound} style={{ padding: '2px 8px', fontSize: '0.75rem', cursor: 'pointer' }}>+ Toevoegen</button>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  onClick={() => setIsBatchModalOpen(true)}
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    background: '#e3f2fd',
+                    border: '1px solid #90caf9',
+                    borderRadius: '3px',
+                    fontWeight: 'bold',
+                  }}
+                  title="Voeg een of meer gerichte sub-objecten toe"
+                >
+                  + Sub-object(en)
+                </button>
+                <button onClick={handleAddOutbound} style={{ padding: '2px 8px', fontSize: '0.75rem', cursor: 'pointer' }}>
+                  + Toevoegen
+                </button>
+              </div>
             </div>
-
             {outboundRelations.map((rel, index) => (
               <div
                 key={rel.id}
@@ -619,6 +642,28 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
           onUpdated={() => {
             refreshParameters();
             refreshRelations();
+          }}
+        />
+        <BatchSubObjectModal
+          isOpen={isBatchModalOpen}
+          parentId={formData.id}
+          parentLabel={formData.label || 'Onbekend'}
+          onClose={() => setIsBatchModalOpen(false)}
+          onSuccess={async () => {
+            // Ververs direct de relaties en parameters binnen de NodeEditorModal
+            const [newParams, newRels] = await Promise.all([
+              GetParametersForTarget(formData.id),
+              GetRelationsForTarget(formData.id),
+            ]);
+            setParameters(newParams || []);
+            setRelations(newRels || []);
+
+            // Signaleer achterliggende schermen om de boom/preview te herladen
+            window.dispatchEvent(
+              new CustomEvent('relations-updated', {
+                detail: { sourceId: formData.id },
+              })
+            );
           }}
         />
       </div>

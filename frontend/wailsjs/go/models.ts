@@ -1,5 +1,29 @@
 export namespace main {
 	
+	export class BatchCreateSubObjectsInput {
+	    parentId: string;
+	    count: number;
+	    baseLabel: string;
+	    relationID: string;
+	    objectTypeID: string;
+	    parameterID: string;
+	    parameterValue: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BatchCreateSubObjectsInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.parentId = source["parentId"];
+	        this.count = source["count"];
+	        this.baseLabel = source["baseLabel"];
+	        this.relationID = source["relationID"];
+	        this.objectTypeID = source["objectTypeID"];
+	        this.parameterID = source["parameterID"];
+	        this.parameterValue = source["parameterValue"];
+	    }
+	}
 	export class DbTemplateRecord {
 	    id: string;
 	    label: string;

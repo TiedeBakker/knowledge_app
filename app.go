@@ -16,6 +16,7 @@ import (
 	"runtime" // Standaard Go runtime package (voor runtime.GOOS)
 	"strings"
 	"time"
+	
 
 	_ "github.com/glebarez/go-sqlite"
 
@@ -1251,4 +1252,122 @@ func (a *App) SaveMasterRelation(r RelationMaster) error {
 	query := `UPDATE relations SET label = ?, updated_at = ? WHERE id = ?`
 	_, err := a.db.ExecContext(a.ctx, query, r.Label, now, r.ID)
 	return err
+}
+
+type BatchCreateSubObjectsInput struct {
+	ParentID       string `json:"parentId"`       // Het startobject uit de Node-editor
+	Count          int    `json:"count"`          // Aantal toe te voegen objecten (interactief)
+	BaseLabel      string `json:"baseLabel"`      // Bijv. "Paragraaf" of "Tekstitem"
+	RelationID     string `json:"relationID"`     // Bijv. "is een uitwerking van" (01a03afa-...)
+	ObjectTypeID   string `json:"objectTypeID"`   // Bijv. "tekstitem" objecttype (01a144fd-...)
+	ParameterID    string `json:"parameterID"`    // Bijv. "Tekstblok" parameter (01a0d3ba-...)
+	ParameterValue string `json:"parameterValue"` // Bijv. "<p>Tekstblok</p>"
+}
+
+func (a *App) BatchCreateSubObjects(input BatchCreateSubObjectsInput) (int64, error) {
+	if input.Count <= 0 {
+		return 0, fmt.Errorf("aantal moet groter zijn dan 0")
+	}
+	if input.ParentID == "" {
+		return 0, fmt.Errorf("geen parentID opgegeven")
+	}
+
+	// Standaardwaarden als ze niet zijn meegegeven
+	relID := input.RelationID
+	if relID == "" {
+		relID = "01a03afa-fa76-76de-a973-18d94bc873e3"	 // "is een uitwerking van"
+	}
+	objTypeID := input.ObjectTypeID
+	if objTypeID == "" {
+		objTypeID = "01a144fd-8c55-7d92-baa1-0a0716ce60fb" // "tekstitem"
+	}
+	paramID := input.ParameterID
+	if paramID == "" {
+		paramID = "01a0d3ba-c761-755a-b6c4-537c29a5e902" // "Tekstblok"
+	}
+	paramVal := input.ParameterValue
+	if paramVal == "" {
+		paramVal = "<p>Tekstblok</p>"
+	}
+	baseLab := input.BaseLabel
+	if baseLab == "" {
+		baseLab = "Nieuw object"
+	}
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+
+	// Start transactie
+	tx, err := a.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("transactie starten mislukt: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Bepaal het huidige aantal uitgaande relaties voor dit parent-object om achteraan te beginnen
+	var existingCount int
+	err = tx.QueryRow(`
+		SELECT COUNT(*) 
+		FROM relation_values 
+		WHERE source_id = ? AND deleted_at IS NULL
+	`, input.ParentID).Scan(&existingCount)
+	if err != nil {
+		return 0, fmt.Errorf("fout bij opvragen bestaande uitgaande relaties: %w", err)
+	}
+
+	var insertedCount int64 = 0
+
+	for i := 0; i < input.Count; i++ {
+		newObjID := NewUUIDv7()
+		label := fmt.Sprintf("%s %d", baseLab, i+1)
+		
+		// Bepaal de volgorde: begin na de reeds bestaande uitgaande relaties
+		currentOrder := existingCount + i + 1
+
+		// STAP 1: Maak het nieuwe object aan
+		_, err := tx.Exec(`
+			INSERT INTO objects (id, label, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, 0, ?, ?)
+		`, newObjID, label, nowISO, nowISO)
+		if err != nil {
+			return 0, fmt.Errorf("fout bij invoegen object (stap 1): %w", err)
+		}
+
+		// STAP 2: Leg Relatie 1 naar het startobject (Parent) met doorlopende volgorde
+		rel1ID := NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+		`, rel1ID, relID, input.ParentID, newObjID, currentOrder, nowISO, nowISO)
+		if err != nil {
+			return 0, fmt.Errorf("fout bij leggen relatie 1 (stap 2): %w", err)
+		}
+
+		// STAP 3: Leg Relatie 2 naar het objecttype
+		rel2ID := NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+			VALUES (?, '019fcdd3-721a-7512-b755-cddd67f43eb6', ?, ?, 0, 0, ?, ?)
+		`, rel2ID, objTypeID, newObjID, nowISO, nowISO)
+		if err != nil {
+			return 0, fmt.Errorf("fout bij leggen relatie 2 (stap 3): %w", err)
+		}
+
+		// STAP 4: Ken de parameterwaarde toe
+		paramValID := NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, ?, 'object', ?, 0, ?, ?)
+		`, paramValID, paramID, newObjID, paramVal, nowISO, nowISO)
+		if err != nil {
+			return 0, fmt.Errorf("fout bij toekennen parameter (stap 4): %w", err)
+		}
+
+		insertedCount++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit mislukt: %w", err)
+	}
+
+	return insertedCount, nil
 }

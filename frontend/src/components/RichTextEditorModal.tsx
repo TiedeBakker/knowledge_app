@@ -6,12 +6,34 @@ import Highlight from '@tiptap/extension-highlight';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
 import CodeBlock from '@tiptap/extension-code-block';
+import Link from '@tiptap/extension-link';
 import {
   Bold, Italic, List, ListOrdered, Heading1, Heading2,
   Quote, ImageIcon, X, Save, Highlighter, Palette,
-  Maximize2, Minimize2, Code, FolderOpen
+  Maximize2, Minimize2, Code, FolderOpen, Link as LinkIcon, Unlink
 } from 'lucide-react';
 import { GetLocalImageBase64, SelectImageFile } from '../../wailsjs/go/main/App';
+
+// Importeer de NodeSearchSelector (controleer eventueel het relatieve pad)
+import { NodeSearchSelector } from '../modules/base-module/components/NodeSearchSelector';
+import { SearchableObject } from '../modules/base-module/utils/searchUtils';
+
+// Custom Tiptap Link extension met 'data-object-id' ondersteuning
+const CustomLink = Link.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      'data-object-id': {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-object-id'),
+        renderHTML: (attributes: Record<string, any>) => {
+          if (!attributes['data-object-id']) return {};
+          return { 'data-object-id': attributes['data-object-id'] };
+        },
+      },
+    };
+  },
+});
 
 const CustomImage = Image.extend({
   addAttributes() {
@@ -56,6 +78,7 @@ interface RichTextEditorModalProps {
   initialValue: string;
   title?: string;
   onSave: (htmlContent: string) => void;
+  availableObjects?: SearchableObject[]; // <--- Nieuwe prop voor de NodeSearchSelector
 }
 
 export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
@@ -64,12 +87,14 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
   initialValue,
   title = 'Tekst en Illustraties Bewerken',
   onSave,
+  availableObjects = [], // Default naar lege array indien niet meegegeven
 }) => {
   const [imageUrl, setImageUrl] = useState('');
   const [imageLayout, setImageLayout] = useState<ImageLayoutType>('inline-center');
   const [imageZoom] = useState('1');
   const [imagePosition] = useState('center center');
   const [showImageDialog, setShowImageDialog] = useState(false);
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
   const editor = useEditor({
@@ -82,6 +107,12 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
       CustomImage.configure({
         inline: false,
         allowBase64: true,
+      }),
+      CustomLink.configure({
+        openOnClick: false,
+        HTMLAttributes: {
+          class: 'report-internal-link',
+        },
       }),
       Highlight.configure({ multicolor: true }),
       TextStyle,
@@ -131,6 +162,56 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
 
       setImageUrl('');
       setShowImageDialog(false);
+    }
+  };
+
+  // Interne link invoegen op basis van het geselecteerde object
+  const handleInsertObjectLink = (targetObject: SearchableObject) => {
+    if (!editor) return;
+
+    // Gebruik expliciet '#node-' als anchor sodat dit matchet met de HTML/PDF koppen
+    const anchorHref = `#node-${targetObject.id}`;
+    const { from, to } = editor.state.selection;
+    const hasSelection = from !== to;
+
+    if (hasSelection) {
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange('link')
+        .setLink({
+          href: anchorHref,
+          // @ts-ignore custom attribute
+          'data-object-id': targetObject.id,
+        })
+        .run();
+    } else {
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'text',
+          text: targetObject.label,
+          marks: [
+            {
+              type: 'link',
+              attrs: {
+                href: anchorHref,
+                'data-object-id': targetObject.id,
+                class: 'report-internal-link',
+              },
+            },
+          ],
+        })
+        .run();
+    }
+
+    setShowLinkDialog(false);
+  };
+
+  const handleRemoveLink = () => {
+    if (editor) {
+      editor.chain().focus().unsetLink().run();
     }
   };
 
@@ -234,8 +315,35 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
 
             <div style={{ width: '1px', height: '20px', background: '#cbd5e1', margin: '0 4px' }} />
 
+            {/* Interne Link Knop */}
             <button
-              onClick={() => setShowImageDialog(!showImageDialog)}
+              onClick={() => {
+                setShowLinkDialog(!showLinkDialog);
+                setShowImageDialog(false);
+              }}
+              style={buttonStyle(editor.isActive('link'))}
+              title="Link naar ander Object toevoegen"
+            >
+              <LinkIcon size={16} />
+            </button>
+
+            {editor.isActive('link') && (
+              <button
+                onClick={handleRemoveLink}
+                style={buttonStyle(false)}
+                title="Link verwijderen"
+              >
+                <Unlink size={16} color="#dc2626" />
+              </button>
+            )}
+
+            <div style={{ width: '1px', height: '20px', background: '#cbd5e1', margin: '0 4px' }} />
+
+            <button
+              onClick={() => {
+                setShowImageDialog(!showImageDialog);
+                setShowLinkDialog(false);
+              }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
                 background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '4px',
@@ -246,6 +354,34 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
               <ImageIcon size={16} />
               <span>Afbeelding Invoegen</span>
             </button>
+          </div>
+        )}
+
+        {/* Popover met geavanceerde NodeSearchSelector voor Interne Links */}
+        {showLinkDialog && (
+          <div className="p-3 bg-slate-100 border-b border-slate-200 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-slate-700">
+                Selecteer doel-object voor de link:
+              </label>
+              <button
+                onClick={() => setShowLinkDialog(false)}
+                className="px-2 py-1 bg-slate-300 text-slate-700 rounded text-xs font-medium hover:bg-slate-400"
+              >
+                Annuleren
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <NodeSearchSelector
+                items={availableObjects}
+                selectedId={null}
+                onSelect={(selectedObject) => {
+                  handleInsertObjectLink(selectedObject);
+                }}
+                placeholder="Zoek op label... (bijv. Organisatie##foto)"
+              />
+            </div>
           </div>
         )}
 
@@ -271,7 +407,6 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
               </button>
             </div>
 
-            {/* Dropdown voor Layout */}
             <select
               value={imageLayout}
               onChange={(e) => setImageLayout(e.target.value as ImageLayoutType)}

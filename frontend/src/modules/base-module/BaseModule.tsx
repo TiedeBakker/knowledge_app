@@ -549,6 +549,7 @@ export const BaseModule: React.FC = () => {
           isOpen={isRichTextModalOpen}
           initialValue={activeParamValue.content}
           title="Tekst bewerken uit rapportage"
+          availableObjects={availableObjects} // <--- Geef de geladen objectenlijst door
           onClose={() => {
             setIsRichTextModalOpen(false);
             setActiveParamValue(null);

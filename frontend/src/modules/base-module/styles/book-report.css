@@ -186,3 +186,17 @@ img[data-layout="span-all"] {
   display: table;
   clear: both;
 }
+/* Interne Object Links */
+a.report-internal-link,
+.ProseMirror a.report-internal-link {
+  color: #005fb8;
+  text-decoration: underline;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+a.report-internal-link:hover {
+  color: #003e78;
+  background-color: #e0f2fe;
+  border-radius: 2px;
+}

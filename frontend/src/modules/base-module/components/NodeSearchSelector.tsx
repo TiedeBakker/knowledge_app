@@ -25,7 +25,7 @@ export function NodeSearchSelector<T extends SearchableObject>({
   );
 
   const filteredResults = useMemo(
-    () => filterAndRankObjects(items, query),
+    () => filterAndRankObjects(items, query).slice(0, 100), // Beperk tot top 100 voor snelle DOM-rendering
     [items, query]
   );
 

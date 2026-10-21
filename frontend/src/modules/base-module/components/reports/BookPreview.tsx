@@ -1,10 +1,9 @@
 import React from 'react';
-import '../../styles/book-report.css'; // Pas het pad aan afhankelijk van waar je CSS precies staat
 
 interface BookPreviewProps {
   htmlContent: string;
-  onOpenObjectEditor: (objectId: string) => void;
-  onOpenRichTextEditor: (paramValueId: string, objectId: string) => void;
+  onOpenObjectEditor?: (objectId: string) => void;
+  onOpenRichTextEditor?: (paramValueId: string, objectId: string) => void;
 }
 
 export const BookPreview: React.FC<BookPreviewProps> = ({
@@ -12,33 +11,72 @@ export const BookPreview: React.FC<BookPreviewProps> = ({
   onOpenObjectEditor,
   onOpenRichTextEditor,
 }) => {
+
+  // Handler voor dubbelklikken op bewerkbare teksten / titels
   const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
 
-    // 1. Dubbelklik op RichText Parameter-blok
-    const richtextBlock = target.closest('[data-param-value-id]') as HTMLElement;
-    if (richtextBlock) {
-      e.stopPropagation();
-      const paramValueId = richtextBlock.dataset.paramValueId || '';
-      const objectId = richtextBlock.dataset.objectId || '';
-      onOpenRichTextEditor(paramValueId, objectId);
-      return;
+    // Check voor dubbelklik op een titel/kop met object ID
+    const headingEl = target.closest('[data-object-id]') as HTMLElement;
+    if (headingEl && onOpenObjectEditor && !target.closest('[data-param-value-id]')) {
+      const objectId = headingEl.getAttribute('data-object-id');
+      if (objectId) {
+        onOpenObjectEditor(objectId);
+        return;
+      }
     }
 
-    // 2. Dubbelklik op Object Kop
-    const headingBlock = target.closest('[data-object-id]') as HTMLElement;
-    if (headingBlock) {
-      e.stopPropagation();
-      const objectId = headingBlock.dataset.objectId || '';
-      onOpenObjectEditor(objectId);
-      return;
+    // Check voor dubbelklik op een RichText parameterblok
+    const paramEl = target.closest('[data-param-value-id]') as HTMLElement;
+    if (paramEl && onOpenRichTextEditor) {
+      const paramValueId = paramEl.getAttribute('data-param-value-id');
+      const objectId = paramEl.getAttribute('data-target-id') || paramEl.getAttribute('data-object-id') || '';
+      if (paramValueId) {
+        onOpenRichTextEditor(paramValueId, objectId);
+      }
     }
   };
 
+  // Handler voor Enkele Klik op Interne Links
+  const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const link = (e.target as HTMLElement).closest('a.report-internal-link');
+    if (!link) return;
+
+    // Voorkom standaard navigatie/herladen
+    e.preventDefault();
+    e.stopPropagation();
+
+    const objectId = link.getAttribute('data-object-id');
+    const href = link.getAttribute('href');
+
+    // Bepaal de kale ID zonder eventuele hash of prefixes
+    const rawId = objectId || href?.replace('#object-', '').replace('#node-', '').replace('#', '');
+
+    if (rawId) {
+      // Zoek flexibel: eerst via id "node-UUID", dan "object-UUID", of via attribuut [data-object-id="UUID"]
+      const targetElement =
+        document.getElementById(`node-${rawId}`) ||
+        document.getElementById(`object-${rawId}`) ||
+        document.querySelector(`[data-object-id="${rawId}"]`);
+
+      if (targetElement) {
+        // Het object is gevonden: scroll er vloeiend naartoe
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Het object ontbreekt daadwerkelijk in de rapportboom
+        alert(
+          `Het gekoppelde object (ID: ${rawId}) is niet opgenomen in de huidige rapportboom.\n\n` +
+          `Neem het object op in de structuur of verwijder/pas de link aan.`
+        );
+      }
+    }
+  };
   return (
     <div
-      className="book-preview-container"
+      className="book-report-wrapper"
+      onClick={handlePreviewClick}
       onDoubleClick={handleDoubleClick}
+      style={{ minHeight: '100%', cursor: 'pointer' }}
       dangerouslySetInnerHTML={{ __html: htmlContent }}
     />
   );

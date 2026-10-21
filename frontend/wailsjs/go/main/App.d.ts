@@ -4,7 +4,11 @@ import {main} from '../models';
 
 export function BatchCreateSubObjects(arg1:main.BatchCreateSubObjectsInput):Promise<number>;
 
+export function CreateComplexSubObject(arg1:main.CreateComplexSubObjectInput):Promise<string>;
+
 export function CreateNewObject(arg1:string,arg2:string):Promise<string>;
+
+export function DeleteParameterValue(arg1:string):Promise<void>;
 
 export function DeleteRelationValue(arg1:string):Promise<void>;
 
@@ -87,6 +91,8 @@ export function ScanMediaDirectory(arg1:string):Promise<Array<main.MediaImportIt
 export function SearchNodesForSelect(arg1:string,arg2:number):Promise<Array<main.ObjectEntity>>;
 
 export function SearchParametersForSelect(arg1:string):Promise<Array<main.ParameterDefinition>>;
+
+export function SelectAnyFile():Promise<string>;
 
 export function SelectDirectory():Promise<string>;
 

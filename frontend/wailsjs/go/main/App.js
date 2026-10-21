@@ -6,8 +6,16 @@ export function BatchCreateSubObjects(arg1) {
   return window['go']['main']['App']['BatchCreateSubObjects'](arg1);
 }
 
+export function CreateComplexSubObject(arg1) {
+  return window['go']['main']['App']['CreateComplexSubObject'](arg1);
+}
+
 export function CreateNewObject(arg1, arg2) {
   return window['go']['main']['App']['CreateNewObject'](arg1, arg2);
+}
+
+export function DeleteParameterValue(arg1) {
+  return window['go']['main']['App']['DeleteParameterValue'](arg1);
 }
 
 export function DeleteRelationValue(arg1) {
@@ -172,6 +180,10 @@ export function SearchNodesForSelect(arg1, arg2) {
 
 export function SearchParametersForSelect(arg1) {
   return window['go']['main']['App']['SearchParametersForSelect'](arg1);
+}
+
+export function SelectAnyFile() {
+  return window['go']['main']['App']['SelectAnyFile']();
 }
 
 export function SelectDirectory() {

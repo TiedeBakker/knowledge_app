@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { BatchCreateSubObjects } from '../../wailsjs/go/main/App';
+import React, { useState, useEffect } from 'react';
+import { BatchCreateSubObjects, CreateComplexSubObject } from '../../wailsjs/go/main/App';
+import { SUB_OBJECT_CONFIGS, ParameterConfig } from '../config/subObjectConfigs';
+import { main } from '../../wailsjs/go/models';
+import { RichTextEditorModal } from './RichTextEditorModal'; // Zorg dat dit pad klopt naar jouw component
 
 interface Props {
   isOpen: boolean;
@@ -9,8 +12,6 @@ interface Props {
   onSuccess: () => void;
 }
 
-type SubObjectTypeTab = 'tekstitem'; // Hier kunnen we straks 'afbeelding', 'bijlage', etc. aan toevoegen
-
 export const BatchSubObjectModal: React.FC<Props> = ({
   isOpen,
   parentId,
@@ -18,39 +19,223 @@ export const BatchSubObjectModal: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
-  const [activeTab, setActiveTab] = useState<SubObjectTypeTab>('tekstitem');
-
-  // State voor TAB 1: Tekstitems
-  const [count, setCount] = useState<number>(1);
-  const [baseLabel, setBaseLabel] = useState<string>('Paragraaf');
-  const [paramValue, setParamValue] = useState<string>('<p>Tekstblok</p>');
+  const [activeTypeKey, setActiveTypeKey] = useState<string>('tekstitem');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // State voor Batch (Tekstitem)
+  const [batchCount, setBatchCount] = useState<number>(1);
+  const [batchBaseLabel, setBatchBaseLabel] = useState<string>('Paragraaf');
+  const [batchValues, setBatchValues] = useState<Record<string, string>>({});
+
+  // State voor Enkelvoudige Complexe Objecten (Boek)
+  const [objectLabel, setObjectLabel] = useState<string>('');
+  const [paramValues, setParamValues] = useState<Record<string, string>>({});
+
+  // State voor de RichTextEditorModal koppeling
+  const [isRichTextOpen, setIsRichTextOpen] = useState<boolean>(false);
+  const [activeMarkdownField, setActiveMarkdownField] = useState<{ code: string; isBatch: boolean } | null>(null);
+
+  const currentConfig = SUB_OBJECT_CONFIGS.find((c) => c.typeKey === activeTypeKey) || SUB_OBJECT_CONFIGS[0];
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const initialParams: Record<string, string> = {};
+    const allParams = [...currentConfig.requiredParameters, ...currentConfig.optionalParameters];
+
+    allParams.forEach((p) => {
+      if (p.defaultValue) {
+        initialParams[p.code] = p.defaultValue;
+      }
+    });
+
+    if (currentConfig.isBatch) {
+      setBatchValues(initialParams);
+    } else {
+      setParamValues(initialParams);
+      setObjectLabel('');
+    }
+  }, [activeTypeKey, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleCreateTekstitems = async () => {
-    if (!parentId || count <= 0) return;
-    setIsLoading(true);
-    try {
-      const resultCount = await BatchCreateSubObjects({
-        parentId: parentId,
-        count: Number(count),
-        baseLabel: baseLabel.trim() || 'Paragraaf',
-        relationID: '01a03afa-fa76-76de-a973-18d94bc873e3', // "is een uitwerking van"
-        objectTypeID: '01a144fd-8c55-7d92-baa1-0a0716ce60fb', // "tekstitem"
-        parameterID: '01a0d3ba-c761-755a-b6c4-537c29a5e902', // "Tekstblok"
-        parameterValue: paramValue,
-      });
+  const areRequiredFieldsFilled = () => {
+    if (currentConfig.isBatch) {
+      return batchCount > 0 && batchBaseLabel.trim() !== '';
+    }
+    if (!objectLabel.trim()) return false;
+    for (const req of currentConfig.requiredParameters) {
+      if (!paramValues[req.code]?.trim()) {
+        return false;
+      }
+    }
+    return true;
+  };
 
-      console.log(`Succesvol ${resultCount} tekstitems aangemaakt!`);
+  const handleParamChange = (code: string, val: string, isBatch: boolean) => {
+    if (isBatch) {
+      setBatchValues((prev) => ({ ...prev, [code]: val }));
+    } else {
+      setParamValues((prev) => ({ ...prev, [code]: val }));
+    }
+  };
+
+  // Open de RichTextEditorModal voor een specifiek markdown-veld
+  const handleOpenRichText = (code: string, isBatch: boolean) => {
+    setActiveMarkdownField({ code, isBatch });
+    setIsRichTextOpen(true);
+  };
+
+  // Opslaan vanuit de RichTextEditorModal
+  const handleSaveRichText = (htmlContent: string) => {
+    if (!activeMarkdownField) return;
+    handleParamChange(activeMarkdownField.code, htmlContent, activeMarkdownField.isBatch);
+    setIsRichTextOpen(false);
+    setActiveMarkdownField(null);
+  };
+
+  const handleFileSelect = async (paramCode: string, isBatch: boolean) => {
+    try {
+      const filePath = await (window as any).go.main.App.SelectAnyFile();
+      if (!filePath) return;
+
+      let formattedPath = filePath.replace(/\\/g, '/');
+      if (formattedPath.includes('DArchieven')) {
+        const parts = formattedPath.split('DArchieven');
+        formattedPath = `http://localhost/DArchieven${parts[parts.length - 1]}`;
+      }
+
+      handleParamChange(paramCode, formattedPath, isBatch);
+    } catch (err) {
+      console.error('Fout bij selecteren bestand:', err);
+    }
+  };
+
+  const renderParameterInput = (param: ParameterConfig, isBatch: boolean) => {
+    const value = isBatch ? (batchValues[param.code] || '') : (paramValues[param.code] || '');
+    const paramType = param.type || 'text';
+
+    switch (paramType) {
+      case 'markdown':
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={value}
+                onChange={(e) => handleParamChange(param.code, e.target.value, isBatch)}
+                placeholder="HTML inhoud of bewerk via editor..."
+                style={{ flex: 1, padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.85rem' }}
+              />
+              <button
+                type="button"
+                onClick={() => handleOpenRichText(param.code, isBatch)}
+                style={{
+                  padding: '6px 12px',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem',
+                  background: '#e3f2fd',
+                  border: '1px solid #90caf9',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  color: '#0d47a1',
+                }}
+              >
+                📝 Rich Text Editor
+              </button>
+            </div>
+          </div>
+        );
+
+      case 'file':
+        return (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => handleParamChange(param.code, e.target.value, isBatch)}
+              placeholder="Pad of http://localhost/DArchieven/..."
+              style={{ flex: 1, padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.85rem' }}
+            />
+            <button
+              type="button"
+              onClick={() => handleFileSelect(param.code, isBatch)}
+              style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '0.8rem', background: '#f0f0f0', border: '1px solid #ccc', borderRadius: '4px' }}
+            >
+              📂 Kies bestand...
+            </button>
+          </div>
+        );
+
+      case 'text':
+      default:
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleParamChange(param.code, e.target.value, isBatch)}
+            style={{ width: '100%', padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #ccc' }}
+          />
+        );
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!parentId || !areRequiredFieldsFilled()) return;
+    setIsLoading(true);
+
+    try {
+      if (currentConfig.isBatch) {
+        await BatchCreateSubObjects({
+          parentId: parentId,
+          count: Number(batchCount),
+          baseLabel: batchBaseLabel.trim() || 'Paragraaf',
+          relationID: currentConfig.relation1Id,
+          objectTypeID: currentConfig.objectTypeId,
+          parameterID: currentConfig.requiredParameters[0].id,
+          parameterValue: batchValues[currentConfig.requiredParameters[0].code] || '<p>Tekstblok</p>',
+        });
+      } else {
+        const parametersPayload = [
+          ...currentConfig.requiredParameters.map((p) => ({
+            parameterId: p.id,
+            value: paramValues[p.code] || '',
+          })),
+          ...currentConfig.optionalParameters
+            .filter((p) => paramValues[p.code]?.trim())
+            .map((p) => ({
+              parameterId: p.id,
+              value: paramValues[p.code],
+            })),
+        ];
+
+        await CreateComplexSubObject(
+          new main.CreateComplexSubObjectInput({
+            parentId: parentId,
+            label: objectLabel.trim(),
+            relationId: currentConfig.relation1Id,
+            objectTypeId: currentConfig.objectTypeId,
+            parameters: parametersPayload,
+          })
+        );
+      }
+
       onSuccess();
       onClose();
     } catch (err) {
-      console.error('Fout bij batch aanmaken sub-objecten:', err);
-      alert('Fout bij aanmaken: ' + err);
+      console.error('Fout bij aanmaken sub-object:', err);
+      alert('Aanmaken mislukt: ' + err);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Huidige waarde ophalen voor de actieve rich text editor
+  const getCurrentMarkdownValue = () => {
+    if (!activeMarkdownField) return '';
+    return activeMarkdownField.isBatch
+      ? (batchValues[activeMarkdownField.code] || '')
+      : (paramValues[activeMarkdownField.code] || '');
   };
 
   return (
@@ -70,9 +255,9 @@ export const BatchSubObjectModal: React.FC<Props> = ({
         style={{
           backgroundColor: '#ffffff',
           borderRadius: '8px',
-          width: '550px',
+          width: '650px',
           maxWidth: '90%',
-          maxHeight: '85vh',
+          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
           padding: '20px',
@@ -85,33 +270,40 @@ export const BatchSubObjectModal: React.FC<Props> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
           <div>
             <h3 style={{ margin: 0 }}>Sub-object(en) Toevoegen</h3>
-            <span style={{ fontSize: '0.8rem', color: '#666' }}>Aan: <strong>{parentLabel}</strong></span>
+            <span style={{ fontSize: '0.8rem', color: '#666' }}>
+              Gekoppeld aan: <strong>{parentLabel}</strong>
+            </span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer' }}>
+            ✕
+          </button>
         </div>
 
         {/* TAB STRIP */}
-        <div style={{ display: 'flex', borderBottom: '2px solid #ddd', marginBottom: '16px' }}>
-          <button
-            onClick={() => setActiveTab('tekstitem')}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: activeTab === 'tekstitem' ? 'bold' : 'normal',
-              borderBottom: activeTab === 'tekstitem' ? '3px solid #007acc' : 'none',
-              color: activeTab === 'tekstitem' ? '#007acc' : '#555',
-            }}
-          >
-            📝 Tekstitem
-          </button>
-          {/* Ruimte gereserveerd voor toekomstige tabbladen */}
+        <div style={{ display: 'flex', borderBottom: '2px solid #ddd', marginBottom: '16px', gap: '8px' }}>
+          {SUB_OBJECT_CONFIGS.map((conf) => (
+            <button
+              key={conf.typeKey}
+              onClick={() => setActiveTypeKey(conf.typeKey)}
+              style={{
+                padding: '8px 16px',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                fontWeight: activeTypeKey === conf.typeKey ? 'bold' : 'normal',
+                borderBottom: activeTypeKey === conf.typeKey ? '3px solid #007acc' : 'none',
+                color: activeTypeKey === conf.typeKey ? '#007acc' : '#555',
+              }}
+            >
+              {conf.tabLabel}
+            </button>
+          ))}
         </div>
 
         {/* TAB INHOUD */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {activeTab === 'tekstitem' && (
+        <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+          {currentConfig.isBatch ? (
+            /* --- BATCH FORMULIER (TEKSTITEM) --- */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
@@ -121,8 +313,8 @@ export const BatchSubObjectModal: React.FC<Props> = ({
                   type="number"
                   min={1}
                   max={100}
-                  value={count}
-                  onChange={(e) => setCount(parseInt(e.target.value, 10) || 1)}
+                  value={batchCount}
+                  onChange={(e) => setBatchCount(parseInt(e.target.value, 10) || 1)}
                   style={{ width: '100%', padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #ccc' }}
                 />
               </div>
@@ -133,32 +325,66 @@ export const BatchSubObjectModal: React.FC<Props> = ({
                 </label>
                 <input
                   type="text"
-                  value={baseLabel}
-                  onChange={(e) => setBaseLabel(e.target.value)}
-                  placeholder="bijv. Paragraaf of Hoofdstuk"
+                  value={batchBaseLabel}
+                  onChange={(e) => setBatchBaseLabel(e.target.value)}
                   style={{ width: '100%', padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #ccc' }}
                 />
               </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
-                  Standaard inhoud (Tekstblok HTML):
+                  {currentConfig.requiredParameters[0].label}:
                 </label>
-                <textarea
-                  value={paramValue}
-                  onChange={(e) => setParamValue(e.target.value)}
-                  rows={4}
-                  style={{
-                    width: '100%',
-                    padding: '6px',
-                    boxSizing: 'border-box',
-                    fontFamily: 'monospace',
-                    fontSize: '0.85rem',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                  }}
+                {renderParameterInput(currentConfig.requiredParameters[0], true)}
+              </div>
+            </div>
+          ) : (
+            /* --- COMPLEX ENKELVOUDIG OBJECT (BIJV. BOEK) --- */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px' }}>
+                  Object Label (Naam/Identificatie)*:
+                </label>
+                <input
+                  type="text"
+                  value={objectLabel}
+                  onChange={(e) => setObjectLabel(e.target.value)}
+                  placeholder="bijv. De Kleine Prins (Boek)"
+                  style={{ width: '100%', padding: '6px', boxSizing: 'border-box', borderRadius: '4px', border: '1px solid #ccc' }}
                 />
               </div>
+
+              {/* Verplichte Parameters */}
+              <div style={{ background: '#f9f9f9', padding: '12px', borderRadius: '6px', border: '1px solid #eee' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#007acc' }}>Verplichte Parameters</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {currentConfig.requiredParameters.map((param) => (
+                    <div key={param.code}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '3px' }}>
+                        {param.label} *:
+                      </label>
+                      {renderParameterInput(param, false)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Optionele Parameters */}
+              {currentConfig.optionalParameters.length > 0 && (
+                <div style={{ background: '#fafafa', padding: '12px', borderRadius: '6px', border: '1px solid #eee' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#666' }}>Optionele Parameters</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {currentConfig.optionalParameters.map((param) => (
+                      <div key={param.code}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '3px' }}>
+                          {param.label}:
+                        </label>
+                        {renderParameterInput(param, false)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -169,8 +395,8 @@ export const BatchSubObjectModal: React.FC<Props> = ({
             Annuleren
           </button>
           <button
-            onClick={handleCreateTekstitems}
-            disabled={isLoading}
+            onClick={handleSubmit}
+            disabled={isLoading || !areRequiredFieldsFilled()}
             style={{
               background: '#007acc',
               color: '#fff',
@@ -179,12 +405,22 @@ export const BatchSubObjectModal: React.FC<Props> = ({
               borderRadius: '4px',
               cursor: 'pointer',
               fontWeight: 'bold',
-              opacity: isLoading ? 0.6 : 1,
+              opacity: isLoading || !areRequiredFieldsFilled() ? 0.5 : 1,
             }}
           >
-            {isLoading ? 'Aanmaken...' : `Voeg ${count} ${count === 1 ? 'tekstitem' : 'tekstitems'} toe`}
+            {isLoading ? 'Opslaan...' : currentConfig.isBatch ? `Voeg ${batchCount} items toe` : `${currentConfig.tabLabel.replace(/[^a-zA-Z ]/g, '').trim()} Aanmaken`}
           </button>
         </div>
+
+        {/* GEKOPPELDE RICHTEXTEDITOR MODAL */}
+        {isRichTextOpen && (
+          <RichTextEditorModal
+            isOpen={isRichTextOpen}
+            initialValue={getCurrentMarkdownValue()} // 👈 Gebruik initialValue in plaats van initialContent
+            onClose={() => setIsRichTextOpen(false)}
+            onSave={handleSaveRichText}
+          />
+        )}
       </div>
     </div>
   );

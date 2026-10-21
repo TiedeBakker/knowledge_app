@@ -1371,3 +1371,133 @@ func (a *App) BatchCreateSubObjects(input BatchCreateSubObjectsInput) (int64, er
 
 	return insertedCount, nil
 }
+type ParameterInput struct {
+	ParameterID string `json:"parameterId"`
+	Value       string `json:"value"`
+}
+
+type CreateComplexSubObjectInput struct {
+	ParentID       string           `json:"parentId"`
+	Label          string           `json:"label"`
+	RelationID     string           `json:"relationId"`
+	ObjectTypeID   string           `json:"objectTypeId"`
+	Parameters     []ParameterInput `json:"parameters"` // Lijst van alle in te vullen parameters (verplicht + optioneel)
+}
+
+func (a *App) CreateComplexSubObject(input CreateComplexSubObjectInput) (string, error) {
+	if input.ParentID == "" {
+		return "", fmt.Errorf("geen parentID opgegeven")
+	}
+	if input.Label == "" {
+		return "", fmt.Errorf("label is verplicht")
+	}
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("transactie starten mislukt: %w", err)
+	}
+	defer tx.Rollback()
+
+	newObjID := NewUUIDv7()
+
+	// 1. Bepaal de huidige volgorde achteraan de uitgaande relaties
+	var existingCount int
+	err = tx.QueryRow(`
+		SELECT COUNT(*) 
+		FROM relation_values 
+		WHERE source_id = ? AND deleted_at IS NULL
+	`, input.ParentID).Scan(&existingCount)
+	if err != nil {
+		return "", fmt.Errorf("fout bij opvragen volgorde: %w", err)
+	}
+	currentOrder := existingCount + 1
+
+	// 2. Maak het hoofdobject aan
+	_, err = tx.Exec(`
+		INSERT INTO objects (id, label, is_confidential, valid_from, updated_at)
+		VALUES (?, ?, 0, ?, ?)
+	`, newObjID, input.Label, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij aanmaken object: %w", err)
+	}
+
+	// 3. Relatie 1: Naar parent object
+	rel1ID := NewUUIDv7()
+	_, err = tx.Exec(`
+		INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+	`, rel1ID, input.RelationID, input.ParentID, newObjID, currentOrder, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij leggen relatie 1: %w", err)
+	}
+
+	// 4. Relatie 2: Naar objecttype
+	rel2ID := NewUUIDv7()
+	_, err = tx.Exec(`
+		INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+		VALUES (?, '019fcdd3-721a-7512-b755-cddd67f43eb6', ?, ?, 0, 0, ?, ?)
+	`, rel2ID, input.ObjectTypeID, newObjID, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij leggen relatie 2: %w", err)
+	}
+
+	// 5. Parameterwaarden wegschrijven (alle ingevulde verplichte en optionele parameters)
+	for _, p := range input.Parameters {
+		if strings.TrimSpace(p.Value) == "" {
+			continue // Sla lege optionele velden over
+		}
+		paramValID := NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, ?, 'object', ?, 0, ?, ?)
+		`, paramValID, p.ParameterID, newObjID, p.Value, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij wegschrijven parameter %s: %w", p.ParameterID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit mislukt: %w", err)
+	}
+
+	return newObjID, nil
+}
+// SelectAnyFile opent het verkenner venster voor elk willekeurig bestand (PDF, tekst, afbeeldingen, etc.)
+func (a *App) SelectAnyFile() (string, error) {
+	selection, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Selecteer een bestand",
+		Filters: []wailsruntime.FileFilter{
+			{
+				DisplayName: "Alle Ondersteunde Bestanden (*.pdf; *.txt; *.jpg; *.jpeg; *.png; *.webp)",
+				Pattern:     "*.pdf;*.txt;*.jpg;*.jpeg;*.png;*.webp",
+			},
+			{
+				DisplayName: "PDF Documenten (*.pdf)",
+				Pattern:     "*.pdf",
+			},
+			{
+				DisplayName: "Tekstbestanden (*.txt)",
+				Pattern:     "*.txt",
+			},
+			{
+				DisplayName: "Alle Bestanden (*.*)",
+				Pattern:     "*.*",
+			},
+		},
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return selection, nil
+}
+// DeleteParameterValue voert een soft-delete uit op een parameterwaarde
+func (a *App) DeleteParameterValue(id string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	query := `UPDATE parameter_values SET deleted_at = ?, updated_at = ? WHERE id = ?`
+	_, err := a.db.ExecContext(a.ctx, query, now, now, id)
+	return err
+}

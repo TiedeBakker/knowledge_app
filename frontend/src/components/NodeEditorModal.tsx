@@ -6,7 +6,7 @@ import { ParameterValueEditorModal } from './ParameterValueEditorModal';
 import { getInboundRelationLabel, getOutboundRelationLabel } from '../utils/relationUtils';
 import { isoToLocalDatetime, localDatetimeToIso, formatDisplayDateTime } from '../utils/dateUtils';
 import { MasterDataEditorModal } from './MasterDataEditorModal';
-import { GetParametersForTarget, GetRelationsForTarget, SaveRelationValue} from '../../wailsjs/go/main/App';
+import { GetParametersForTarget, GetRelationsForTarget, SaveRelationValue, DeleteParameterValue } from '../../wailsjs/go/main/App';
 import { BatchSubObjectModal } from './BatchSubObjectModal';
 
 interface Props {
@@ -48,8 +48,7 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
   // State voor de batch-subobject generator modal
   const [isBatchModalOpen, setIsBatchModalOpen] = useState<boolean>(false);
- 
- 
+  
   useEffect(() => {
     if (node && isOpen) {
       setInitialData({ ...node });
@@ -136,19 +135,16 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
 
   // LOGICA VOOR RE-ORDEREN VAN UITGAANDE RELATIES
   const reorderAndSaveOutboundRelations = async (newList: main.RelationValueEntity[]) => {
-    // Zorg dat volgnummers 1-based, aaneengesloten en oplopend zijn
     const reorderedList = newList.map((rel, index) => ({
       ...rel,
       volgorde: index + 1
     }));
 
-    // Update de lokale state voor directe visuele feedback
     setRelations((prev) => {
       const otherRelations = prev.filter((r) => r.sourceId !== formData.id);
       return [...otherRelations, ...reorderedList];
     });
 
-    // Schrijf naar de SQLite database via SaveRelationValue
     try {
       await Promise.all(
         reorderedList.map((rel) => SaveRelationValue(rel))
@@ -156,11 +152,10 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
       window.dispatchEvent(new CustomEvent('relations-updated'));
     } catch (err) {
       console.error("Fout bij opslaan van relatievolgorde:", err);
-      refreshRelations(); // Rollback naar DB-stand bij fout
+      refreshRelations();
     }
   };
 
-  // Verschuif omhoog (-1) of omlaag (+1)
   const handleMoveOutbound = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= outboundRelations.length) return;
@@ -172,11 +167,9 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
     reorderAndSaveOutboundRelations(updatedList);
   };
 
-  // Direct volgnummer aanpassen via inputveld
   const handleDirectOrderChange = (index: number, newOrderVal: number) => {
     if (isNaN(newOrderVal)) return;
 
-    // Converteer 1-based getal naar 0-based index
     let targetIndex = newOrderVal - 1;
     if (targetIndex < 0) targetIndex = 0;
     if (targetIndex >= outboundRelations.length) targetIndex = outboundRelations.length - 1;
@@ -190,7 +183,7 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
     reorderAndSaveOutboundRelations(updatedList);
   };
 
-  // Handlers voor Parameter-modal
+  // Handlers voor Parameter-modal en Verwijderen
   const refreshParameters = () => {
     if (formData?.id) {
       GetParametersForTarget(formData.id).then((params) => setParameters(params || []));
@@ -213,6 +206,20 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
     setSelectedParamValue(pv);
     setIsMeetwaardeMode(Boolean(pv.validFrom && pv.validTo && pv.validFrom === pv.validTo));
     setIsParamModalOpen(true);
+  };
+
+  // Functie om parameterwaarde te verwijderen (soft-delete via deleted_at)
+  const handleDeleteParamValue = async (pvId: string) => {
+    if (!window.confirm('Weet je zeker dat je deze parameterwaarde wilt verwijderen?')) {
+      return;
+    }
+    try {
+      await DeleteParameterValue(pvId);
+      refreshParameters();
+    } catch (err) {
+      console.error("Fout bij verwijderen parameterwaarde:", err);
+      alert("Verwijderen mislukt: " + err);
+    }
   };
 
   const properties = parameters.filter((p: main.ParameterValueEntity) => !p.validTo || p.validFrom !== p.validTo);
@@ -562,8 +569,9 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
                         <td style={{ padding: '6px' }}>{p.unit || '-'}</td>
                         <td style={{ padding: '6px' }}>{formatDisplayDateTime(p.validFrom)}</td>
                         <td style={{ padding: '6px' }}>{p.validTo ? formatDisplayDateTime(p.validTo) : 'Heden'}</td>
-                        <td style={{ padding: '6px' }}>
-                          <button onClick={() => handleEditParamValue(p)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>✏️</button>
+                        <td style={{ padding: '6px', display: 'flex', gap: '4px' }}>
+                          <button onClick={() => handleEditParamValue(p)} style={{ border: 'none', background: 'none', cursor: 'pointer' }} title="Bewerken">✏️</button>
+                          <button onClick={() => handleDeleteParamValue(p.id)} style={{ border: 'none', background: 'none', cursor: 'pointer' }} title="Verwijderen">🗑️</button>
                         </td>
                       </tr>
                     ))}
@@ -592,8 +600,9 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
                           <td style={{ padding: '6px' }}>{p.parameterLabel}</td>
                           <td style={{ padding: '6px' }}><strong>{p.value}</strong></td>
                           <td style={{ padding: '6px' }}>{p.unit || '-'}</td>
-                          <td style={{ padding: '6px' }}>
-                            <button onClick={() => handleEditParamValue(p)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>✏️</button>
+                          <td style={{ padding: '6px', display: 'flex', gap: '4px' }}>
+                            <button onClick={() => handleEditParamValue(p)} style={{ border: 'none', background: 'none', cursor: 'pointer' }} title="Bewerken">✏️</button>
+                            <button onClick={() => handleDeleteParamValue(p.id)} style={{ border: 'none', background: 'none', cursor: 'pointer' }} title="Verwijderen">🗑️</button>
                           </td>
                         </tr>
                       ))}
@@ -650,7 +659,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
           parentLabel={formData.label || 'Onbekend'}
           onClose={() => setIsBatchModalOpen(false)}
           onSuccess={async () => {
-            // Ververs direct de relaties en parameters binnen de NodeEditorModal
             const [newParams, newRels] = await Promise.all([
               GetParametersForTarget(formData.id),
               GetRelationsForTarget(formData.id),
@@ -658,7 +666,6 @@ export const NodeEditorModal: React.FC<Props> = ({ node, isOpen, onClose, onSave
             setParameters(newParams || []);
             setRelations(newRels || []);
 
-            // Signaleer achterliggende schermen om de boom/preview te herladen
             window.dispatchEvent(
               new CustomEvent('relations-updated', {
                 detail: { sourceId: formData.id },

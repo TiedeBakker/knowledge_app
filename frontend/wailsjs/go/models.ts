@@ -24,6 +24,58 @@ export namespace main {
 	        this.parameterValue = source["parameterValue"];
 	    }
 	}
+	export class ParameterInput {
+	    parameterId: string;
+	    value: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ParameterInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.parameterId = source["parameterId"];
+	        this.value = source["value"];
+	    }
+	}
+	export class CreateComplexSubObjectInput {
+	    parentId: string;
+	    label: string;
+	    relationId: string;
+	    objectTypeId: string;
+	    parameters: ParameterInput[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateComplexSubObjectInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.parentId = source["parentId"];
+	        this.label = source["label"];
+	        this.relationId = source["relationId"];
+	        this.objectTypeId = source["objectTypeId"];
+	        this.parameters = this.convertValues(source["parameters"], ParameterInput);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class DbTemplateRecord {
 	    id: string;
 	    label: string;
@@ -483,6 +535,7 @@ export namespace main {
 	        this.unit = source["unit"];
 	    }
 	}
+	
 	export class ParameterMaster {
 	    id: string;
 	    label: string;

@@ -44,7 +44,29 @@ const CustomImage = Image.extend({
         parseHTML: (element: HTMLElement) => element.getAttribute('data-layout'),
         renderHTML: (attributes: Record<string, any>) => {
           if (!attributes['data-layout']) return {};
-          return { 'data-layout': attributes['data-layout'] };
+
+          const layout = attributes['data-layout'];
+          let style = '';
+
+          switch (layout) {
+            case 'inline-left':
+              style = 'width: 50%; float: left; margin-right: 1em; margin-bottom: 0.5em;';
+              break;
+            case 'inline-right':
+              style = 'width: 50%; float: right; margin-left: 1em; margin-bottom: 0.5em;';
+              break;
+            case 'inline-center':
+              style = 'width: 80%; display: block; margin: 0 auto;';
+              break;
+            case 'span-all':
+              style = 'width: 100%; display: block;';
+              break;
+          }
+
+          return {
+            'data-layout': layout,
+            style: style, // Pas de inline style direct toe in de DOM van de editor
+          };
         },
       },
       'data-zoom': {

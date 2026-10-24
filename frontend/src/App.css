@@ -68,6 +68,59 @@
   margin-bottom: 1.5rem;
 }
 
+
+/* Styling voor foto's binnen de rapport-preview */
+.v2-report-container img,
+.editable-richtext img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Links uitlijnen (50% breedte) */
+.v2-report-container img[data-layout="inline-left"],
+.editable-richtext img[data-layout="inline-left"] {
+  float: left !important;
+  width: 50% !important;
+  max-width: 50% !important;
+  margin-right: 1.5rem !important;
+  margin-bottom: 0.75rem !important;
+}
+
+/* Rechts uitlijnen (50% breedte) */
+.v2-report-container img[data-layout="inline-right"],
+.editable-richtext img[data-layout="inline-right"] {
+  float: right !important;
+  width: 50% !important;
+  max-width: 50% !important;
+  margin-left: 1.5rem !important;
+  margin-bottom: 0.75rem !important;
+}
+
+/* Centreren */
+.v2-report-container img[data-layout="inline-center"],
+.editable-richtext img[data-layout="inline-center"] {
+  display: block !important;
+  margin: 1rem auto !important;
+  max-width: 80% !important;
+}
+
+/* Volledige breedte */
+.v2-report-container img[data-layout="span-all"],
+.editable-richtext img[data-layout="span-all"] {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Clearfix zodat lopende tekst de zwevende afbeeldingen netjes omsluit */
+.v2-report-container td::after,
+.v2-node-wrapper::after,
+.editable-richtext::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
 @media print {
   /* 1. Reset alle Viewport Hoogtes (100vh) */
   html, body, #app, #root, .app-container, .sidebar {

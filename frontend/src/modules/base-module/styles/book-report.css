@@ -72,8 +72,13 @@
   min-width: 28px;
 }
 
-.toc-level-2 { padding-left: 20px; }
-.toc-level-3 { padding-left: 40px; }
+.toc-level-2 {
+  padding-left: 20px;
+}
+
+.toc-level-3 {
+  padding-left: 40px;
+}
 
 /* Koppen & Secties */
 .report-section {
@@ -114,7 +119,8 @@ mark {
 }
 
 /* Styling voor Code-/Sonderingsblokken */
-pre, pre.report-code-block {
+pre,
+pre.report-code-block {
   background-color: #f1f5f9;
   border-left: 4px solid #0284c7;
   border-radius: 4px;
@@ -149,7 +155,8 @@ pre code {
 }
 
 /* Zorg dat ingezoomde afbeeldingen niet buiten hun kolom/kader treden */
-figure, div[data-layout] {
+figure,
+div[data-layout] {
   max-width: 100%;
   overflow: hidden;
   border-radius: 4px;
@@ -186,6 +193,7 @@ img[data-layout="span-all"] {
   display: table;
   clear: both;
 }
+
 /* Interne Object Links */
 a.report-internal-link,
 .ProseMirror a.report-internal-link {
@@ -194,6 +202,14 @@ a.report-internal-link,
   font-weight: 500;
   cursor: pointer;
 }
+
+/* De cursor: help geldt overal waar de abbr wordt gebruikt */
+.report-abbr {
+  cursor: help;
+  text-decoration: none; 
+}
+
+
 
 a.report-internal-link:hover {
   color: #003e78;

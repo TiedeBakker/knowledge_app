@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 	"strings"
+	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -215,6 +215,12 @@ func wrapInFullHTMLDocument(bodyHTML string) string {
             display: table;
             clear: both;
         }
+
+            .report-abbr {
+    cursor: help;
+    text-decoration: none;
+}
+    
 
         @media print {
             body { padding: 0; }

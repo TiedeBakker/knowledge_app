@@ -1739,6 +1739,10 @@ func formatInlineHTML(input string) string {
 	for escaped, unescaped := range replacements {
 		safe = strings.ReplaceAll(safe, escaped, unescaped)
 	}
-
+	// 3. VEILIGE REGEX VOOR TOOLTIPS / VERBORGEN TEKST (<abbr title="...">...</abbr>)
+	// Go's html.EscapeString vervangt dubbele quotes (") door &#34;
+	// We vangen hiermee de tooltip op en reconstrueren een schone abbr-tag.
+	tooltipRegex := regexp.MustCompile(`&lt;abbr title=&#34;([^&]+)&#34;&gt;([^&]+)&lt;/abbr&gt;`)
+	safe = tooltipRegex.ReplaceAllString(safe, `<abbr title="$1" class="report-abbr">$2</abbr>`)
 	return safe
 }

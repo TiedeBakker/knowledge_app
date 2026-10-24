@@ -60,6 +60,7 @@
     border: none;
     background-color: rgba(255, 255, 255, 1);
 }
+
 /* Zorg dat formulierblokken netjes links opgelijnd blijven */
 .form-group {
   display: flex;
@@ -69,58 +70,96 @@
 }
 
 
-/* Styling voor foto's binnen de rapport-preview */
-.v2-report-container img,
-.editable-richtext img {
+/* ==========================================
+   FOTO'S & LAYOUTS (Figure & Figcaption)
+   ========================================== */
+.v2-report-container figure,
+.editable-richtext figure,
+.ProseMirror figure {
+  margin: 1rem 0;
   max-width: 100%;
-  height: auto;
+  box-sizing: border-box;
 }
 
-/* Links uitlijnen (50% breedte) */
-.v2-report-container img[data-layout="inline-left"],
-.editable-richtext img[data-layout="inline-left"] {
+.v2-report-container figure img,
+.editable-richtext figure img,
+.ProseMirror figure img {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  border-radius: 4px;
+  display: block;
+}
+
+.v2-report-container figcaption,
+.editable-richtext figcaption,
+.ProseMirror figcaption {
+  font-size: 0.85rem;
+  color: #64748b;
+  text-align: center;
+  margin-top: 0.4rem;
+  font-style: italic;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Links uitlijnen (exact 50% breedte met tekst ernaast) */
+.v2-report-container figure[data-layout="inline-left"],
+.editable-richtext figure[data-layout="inline-left"],
+.ProseMirror figure[data-layout="inline-left"] {
   float: left !important;
   width: 50% !important;
   max-width: 50% !important;
-  margin-right: 1.5rem !important;
-  margin-bottom: 0.75rem !important;
+  box-sizing: border-box !important;
+  margin: 0.25rem 1.5rem 0.75rem 0 !important;
 }
 
-/* Rechts uitlijnen (50% breedte) */
-.v2-report-container img[data-layout="inline-right"],
-.editable-richtext img[data-layout="inline-right"] {
+/* Rechts uitlijnen (exact 50% breedte met tekst ernaast) */
+.v2-report-container figure[data-layout="inline-right"],
+.editable-richtext figure[data-layout="inline-right"],
+.ProseMirror figure[data-layout="inline-right"] {
   float: right !important;
   width: 50% !important;
   max-width: 50% !important;
-  margin-left: 1.5rem !important;
-  margin-bottom: 0.75rem !important;
+  box-sizing: border-box !important;
+  margin: 0.25rem 0 0.75rem 1.5rem !important;
 }
 
-/* Centreren */
-.v2-report-container img[data-layout="inline-center"],
-.editable-richtext img[data-layout="inline-center"] {
+/* Centreren (80% breedte, zonder tekst ernaast) */
+.v2-report-container figure[data-layout="inline-center"],
+.editable-richtext figure[data-layout="inline-center"],
+.ProseMirror figure[data-layout="inline-center"] {
   display: block !important;
-  margin: 1rem auto !important;
+  width: 80% !important;
   max-width: 80% !important;
+  margin: 1rem auto !important;
 }
 
-/* Volledige breedte */
-.v2-report-container img[data-layout="span-all"],
-.editable-richtext img[data-layout="span-all"] {
+/* Volledige breedte (100%) */
+.v2-report-container figure[data-layout="span-all"],
+.editable-richtext figure[data-layout="span-all"],
+.ProseMirror figure[data-layout="span-all"] {
   display: block !important;
   width: 100% !important;
   max-width: 100% !important;
+  margin: 1.5rem auto !important;
 }
+
 
 /* Clearfix zodat lopende tekst de zwevende afbeeldingen netjes omsluit */
 .v2-report-container td::after,
 .v2-node-wrapper::after,
-.editable-richtext::after {
+.editable-richtext::after,
+.ProseMirror::after {
   content: "";
   display: table;
   clear: both;
 }
 
+
+/* ==========================================
+   PRINT STYLING
+   ========================================== */
 @media print {
   /* 1. Reset alle Viewport Hoogtes (100vh) */
   html, body, #app, #root, .app-container, .sidebar {
@@ -148,9 +187,9 @@
 
   /* 4. Reset Grid & Flexbox overlays voor print */
   .row-top, .row-bottom {
-    display: block !important; /* Zet grid om naar blokken als grid blijft overlappen */
+    display: block !important;
     min-height: auto !important;
-    page-break-inside: avoid; /* Voorkomt dat een blok middenin breekt */
+    page-break-inside: avoid;
   }
 
   /* 5. Forceer normale tekstkleuren en positionering */
@@ -158,7 +197,7 @@
     position: static !important;
     box-shadow: none !important;
     text-shadow: none !important;
-    color: #000000 !important; /* Optioneel: voorkom witte tekst op witte PDF-achtergrond */
+    color: #000000 !important;
     background: transparent !important;
   }
 }

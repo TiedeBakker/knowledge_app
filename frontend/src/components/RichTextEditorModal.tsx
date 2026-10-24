@@ -9,7 +9,7 @@ import CodeBlock from '@tiptap/extension-code-block';
 import Link from '@tiptap/extension-link';
 import {
   Bold, Italic, List, ListOrdered, Heading1, Heading2,
-  Quote, ImageIcon, X, Save, Highlighter, Palette,
+  Quote, X, Save, Highlighter, Palette,
   Maximize2, Minimize2, Code, FolderOpen, Link as LinkIcon, Unlink
 } from 'lucide-react';
 import { GetLocalImageBase64, SelectImageFile } from '../../wailsjs/go/main/App';
@@ -17,6 +17,10 @@ import { GetLocalImageBase64, SelectImageFile } from '../../wailsjs/go/main/App'
 // Importeer de NodeSearchSelector (controleer eventueel het relatieve pad)
 import { NodeSearchSelector } from '../modules/base-module/components/NodeSearchSelector';
 import { SearchableObject } from '../modules/base-module/utils/searchUtils';
+import { ImageModal, ImageModalData } from './modals/ImageModal';
+import { resolveMediaHtml } from '../utils/mediaHelper';
+import { GetPhotoFilePath } from '../../wailsjs/go/main/App';
+
 
 // Custom Tiptap Link extension met 'data-object-id' ondersteuning
 const CustomLink = Link.extend({
@@ -39,59 +43,88 @@ const CustomImage = Image.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      src: {
+        default: null,
+        parseHTML: (element) => {
+          const img = element.tagName === 'FIGURE' ? element.querySelector('img') : element;
+          return img?.getAttribute('src');
+        },
+      },
+      'data-media-id': {
+        default: null,
+        parseHTML: (element) => {
+          const figure = element.closest('figure') || (element.tagName === 'FIGURE' ? element : null);
+          const img = element.tagName === 'FIGURE' ? element.querySelector('img') : element;
+          return figure?.getAttribute('data-media-id') || img?.getAttribute('data-media-id');
+        },
+        renderHTML: (attributes) => {
+          if (!attributes['data-media-id']) return {};
+          return { 'data-media-id': attributes['data-media-id'] };
+        },
+      },
       'data-layout': {
-        default: 'inline-center',
-        parseHTML: (element: HTMLElement) => element.getAttribute('data-layout'),
-        renderHTML: (attributes: Record<string, any>) => {
+        default: 'inline-left',
+        parseHTML: (element) => {
+          const figure = element.closest('figure') || (element.tagName === 'FIGURE' ? element : null);
+          const img = element.tagName === 'FIGURE' ? element.querySelector('img') : element;
+          return figure?.getAttribute('data-layout') || img?.getAttribute('data-layout');
+        },
+        renderHTML: (attributes) => {
           if (!attributes['data-layout']) return {};
-
-          const layout = attributes['data-layout'];
-          let style = '';
-
-          switch (layout) {
-            case 'inline-left':
-              style = 'width: 50%; float: left; margin-right: 1em; margin-bottom: 0.5em;';
-              break;
-            case 'inline-right':
-              style = 'width: 50%; float: right; margin-left: 1em; margin-bottom: 0.5em;';
-              break;
-            case 'inline-center':
-              style = 'width: 80%; display: block; margin: 0 auto;';
-              break;
-            case 'span-all':
-              style = 'width: 100%; display: block;';
-              break;
-          }
-
-          return {
-            'data-layout': layout,
-            style: style, // Pas de inline style direct toe in de DOM van de editor
-          };
+          return { 'data-layout': attributes['data-layout'] };
         },
       },
-      'data-zoom': {
-        default: '1',
-        parseHTML: (element: HTMLElement) => element.getAttribute('data-zoom'),
-        renderHTML: (attributes: Record<string, any>) => {
-          if (!attributes['data-zoom'] || attributes['data-zoom'] === '1') return {};
-          return {
-            'data-zoom': attributes['data-zoom'],
-            style: `transform: scale(${attributes['data-zoom']}); transform-origin: ${attributes['data-position'] || 'center'};`
-          };
+      'data-caption': {
+        default: '',
+        parseHTML: (element) => {
+          const figure = element.closest('figure') || (element.tagName === 'FIGURE' ? element : null);
+          const img = element.tagName === 'FIGURE' ? element.querySelector('img') : element;
+          const figcaption = figure?.querySelector('figcaption');
+          return figcaption?.textContent || figure?.getAttribute('data-caption') || img?.getAttribute('data-caption') || img?.getAttribute('alt') || '';
         },
-      },
-      'data-position': {
-        default: 'center center',
-        parseHTML: (element: HTMLElement) => element.getAttribute('data-position'),
-        renderHTML: (attributes: Record<string, any>) => {
-          if (!attributes['data-position']) return {};
-          return { 'data-position': attributes['data-position'] };
+        renderHTML: (attributes) => {
+          if (!attributes['data-caption']) return {};
+          return {
+            'data-caption': attributes['data-caption'],
+            alt: attributes['data-caption'],
+            title: attributes['data-caption'],
+          };
         },
       },
     };
   },
-});
 
+  renderHTML({ HTMLAttributes }) {
+    const layout = HTMLAttributes['data-layout'] || 'inline-left';
+    const caption = HTMLAttributes['data-caption'] || '';
+    const mediaId = HTMLAttributes['data-media-id'] || '';
+
+    const figure = document.createElement('figure');
+    figure.setAttribute('data-layout', layout);
+    if (mediaId) figure.setAttribute('data-media-id', mediaId);
+    if (caption) figure.setAttribute('data-caption', caption);
+    figure.className = `image-wrapper layout-${layout}`;
+
+    const img = document.createElement('img');
+    img.setAttribute('src', HTMLAttributes['src'] || '');
+    if (mediaId) img.setAttribute('data-media-id', mediaId);
+    if (layout) img.setAttribute('data-layout', layout);
+    if (caption) {
+      img.setAttribute('data-caption', caption);
+      img.setAttribute('alt', caption);
+      img.setAttribute('title', caption);
+    }
+    figure.appendChild(img);
+
+    if (caption) {
+      const figcaption = document.createElement('figcaption');
+      figcaption.textContent = caption;
+      figure.appendChild(figcaption);
+    }
+
+    return figure;
+  },
+});
 type ImageLayoutType = 'inline-left' | 'inline-right' | 'inline-center' | 'span-all';
 
 interface RichTextEditorModalProps {
@@ -118,7 +151,92 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [editingImageData, setEditingImageData] = useState<ImageModalData | null>(null);
 
+  // Open de modal leeg vanuit de Toolbar-knop
+  const handleOpenAddImage = () => {
+    setEditingImageData(null);
+    setIsImageModalOpen(true);
+  };
+
+const handleEditorDoubleClick = (event: React.MouseEvent) => {
+    if (!editor) return;
+
+    // Zoek het HTML element waar op geklikt is
+    const target = event.target as HTMLElement;
+    const element = target.closest('figure, img') as HTMLElement;
+
+    if (element) {
+      const imgElement = element.tagName === 'FIGURE' ? element.querySelector('img') : element;
+      
+      const mediaId = element.getAttribute('data-media-id') || imgElement?.getAttribute('data-media-id') || '';
+      const layout = (element.getAttribute('data-layout') || imgElement?.getAttribute('data-layout') as any) || 'inline-left';
+      const caption = element.getAttribute('data-caption') || imgElement?.getAttribute('data-caption') || '';
+
+      console.log("[Doubleclick] Gevonden afbeeldingsdata:", { mediaId, layout, caption });
+
+      setEditingImageData({ mediaId, layout, caption });
+      setIsImageModalOpen(true);
+    }
+  };
+// Helper om bij opslaan de file:// paden weer terug te zetten naar media:// voor in de database
+const cleanHtmlForSave = (htmlContent: string): string => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
+  const images = doc.querySelectorAll('img[data-media-id]');
+
+  for (const img of Array.from(images)) {
+    const mediaId = img.getAttribute('data-media-id');
+    if (mediaId) {
+      img.setAttribute('src', `media://${mediaId}`);
+    }
+  }
+
+  return doc.body.innerHTML;
+};
+// Opslaan vanuit ImageModal (ondersteunt zowel nieuw toevoegen als bewerken)
+  const handleSaveImageModal = async (data: ImageModalData) => {
+    if (editor) {
+      let finalSrc = `media://${data.mediaId}`;
+      try {
+        const filePath = await GetPhotoFilePath(data.mediaId);
+        if (filePath) {
+          finalSrc = `${filePath.replace(/\\/g, '/')}`;
+        }
+      } catch (err) {
+        console.error("Kon afbeeldingspad niet ophalen:", err);
+      }
+
+      // Als we aan het bewerken waren (editingImageData is niet null), update dan de node
+      if (editingImageData) {
+        editor
+          .chain()
+          .focus()
+          .updateAttributes('image', {
+            src: finalSrc,
+            'data-media-id': data.mediaId,
+            'data-layout': data.layout,
+            'data-caption': data.caption,
+          })
+          .run();
+      } else {
+        // Anders voegen we een nieuwe toe
+        editor
+          .chain()
+          .focus()
+          .setImage({
+            src: finalSrc,
+            'data-media-id': data.mediaId,
+            'data-layout': data.layout,
+            'data-caption': data.caption,
+          } as any)
+          .run();
+      }
+    }
+    setEditingImageData(null);
+    setIsImageModalOpen(false);
+  };
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -143,8 +261,33 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
         HTMLAttributes: { class: 'report-code-block' },
       }),
     ],
-    content: initialValue || '<p></p>',
+    content: initialValue,
+    editorProps: {
+      attributes: {
+        class: 'prose focus:outline-none max-w-none',
+      },
+      // Hier koppel je de dubbelklik-handler netjes in:
+      handleDOMEvents: {
+        dblclick: (_view, event) => {
+          handleEditorDoubleClick(event as unknown as React.MouseEvent);
+          return false;
+        },
+      },
+    },
   });
+
+  useEffect(() => {
+  let isMounted = true;
+  async function loadContent() {
+    // initialValue is bijvoorbeeld de parameterwaarde uit de database met media://...
+    const resolvedHtml = await resolveMediaHtml(initialValue);
+    if (isMounted && editor) {
+      editor.commands.setContent(resolvedHtml);
+    }
+  }
+  loadContent();
+  return () => { isMounted = false; };
+}, [initialValue, editor]);
 
   useEffect(() => {
     if (editor && isOpen) {
@@ -154,13 +297,14 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
-    if (editor) {
-      onSave(editor.getHTML());
-      onClose();
-    }
-  };
-
+const handleSave = () => {
+  if (editor) {
+    const rawHtml = editor.getHTML();
+    const cleanHtml = cleanHtmlForSave(rawHtml); // Zet om naar media:// voor de database
+    onSave(cleanHtml);
+    onClose();
+  }
+};
   const addOrUpdateImage = async () => {
     if (imageUrl && editor) {
       let finalSrc = imageUrl.trim();
@@ -361,7 +505,7 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
 
             <div style={{ width: '1px', height: '20px', background: '#cbd5e1', margin: '0 4px' }} />
 
-            <button
+            {/* <button // OUDE INVOEGKNOP, VERVANGEN DOOR IMAGE MODAL
               onClick={() => {
                 setShowImageDialog(!showImageDialog);
                 setShowLinkDialog(false);
@@ -375,6 +519,13 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
             >
               <ImageIcon size={16} />
               <span>Afbeelding Invoegen</span>
+            </button> */}
+            <button
+              type="button"
+              onClick={handleOpenAddImage}
+              title="Foto-object invoegen"
+            >
+              🖼️ Foto invoegen
             </button>
           </div>
         )}
@@ -468,6 +619,13 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
             Opslaan
           </button>
         </div>
+
+        <ImageModal
+          isOpen={isImageModalOpen}
+          initialData={editingImageData}
+          onClose={() => setIsImageModalOpen(false)}
+          onSave={handleSaveImageModal}
+        />
 
       </div>
     </div>

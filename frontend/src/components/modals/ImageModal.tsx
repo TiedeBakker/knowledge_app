@@ -29,7 +29,6 @@ export const ImageModal: React.FC<ImageModalProps> = ({
     if (initialData) {
       setLayout(initialData.layout || 'inline-left');
       setCaption(initialData.caption || '');
-      // Als er een initial mediaId is, maken we een minimaal object aan voor de selector
       if (initialData.mediaId) {
         setSelectedNode(
           new main.ObjectEntity({
@@ -79,7 +78,7 @@ export const ImageModal: React.FC<ImageModalProps> = ({
         style={{
           backgroundColor: '#fff',
           borderRadius: '8px',
-          width: '500px',
+          width: '520px',
           maxWidth: '90%',
           padding: '24px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
@@ -88,11 +87,11 @@ export const ImageModal: React.FC<ImageModalProps> = ({
           gap: '16px',
         }}
       >
-        <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#1e293b' }}>
-          {initialData ? 'Afbeelding bewerken' : 'Afbeelding invoegen'}
+        <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#1e293b' }}>
+          {initialData ? 'Afbeelding bewerken' : 'Foto-object invoegen'}
         </h2>
 
-        {/* 1. SELECTIE FOTO-OBJECT VIA NODESEARCHSELECT */}
+        {/* 1. SELECTIE VIA NODESEARCHSELECT */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
             Foto-object
@@ -101,7 +100,6 @@ export const ImageModal: React.FC<ImageModalProps> = ({
             value={selectedNode}
             onSelectNode={(node) => setSelectedNode(node)}
             placeholder="Zoek een Foto-object (bijv. Foto: kever)..."
-            // Filter: Toon ENKEL objecten waarvan het label start met 'FOTO:'
             filterNode={(node) => {
               const lbl = (node.label || '').trim().toUpperCase();
               return lbl.startsWith('FOTO:');
@@ -109,18 +107,12 @@ export const ImageModal: React.FC<ImageModalProps> = ({
           />
         </div>
 
-        {/* 2. LAYOUT / WEERGAVE SELECTIE */}
+        {/* 2. WEERGAVE & UITLIJNING */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
             Weergave & Uitlijning
           </label>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '8px',
-            }}
-          >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             {[
               { id: 'inline-left', label: '👈 Links (50%)' },
               { id: 'inline-right', label: '👉 Rechts (50%)' },
@@ -149,7 +141,7 @@ export const ImageModal: React.FC<ImageModalProps> = ({
           </div>
         </div>
 
-        {/* 3. ONDERTITEL / CAPTION INPUT */}
+        {/* 3. ONDERTITEL */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
             Ondertitel (Bijschrift)

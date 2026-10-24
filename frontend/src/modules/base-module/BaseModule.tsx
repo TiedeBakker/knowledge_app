@@ -159,6 +159,7 @@ export const BaseModule: React.FC = () => {
   ) => {
     setConfig((prev: BaseModuleConfig) => ({ ...prev, [key]: value }));
   };
+  
 
   // AFHANDELING DUBBELKLIK OP RICHTEXT IN PREVIEW
   const handleOpenRichTextEditorFromReport = (paramValueId: string, objectId: string) => {

@@ -6,11 +6,57 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// ProcessReportImagesForExport past de media-links aan voor HTML- of PDF-export
+func (a *App) ProcessReportImagesForExport(htmlContent string, isPDF bool) string {
+	if a.db == nil {
+		return htmlContent
+	}
+
+	// Zoek naar src="media://ID" in de HTML
+	re := regexp.MustCompile(`src="media://([a-zA-Z0-9\-_]+)"`)
+
+	return re.ReplaceAllStringFunc(htmlContent, func(match string) string {
+		submatch := re.FindStringSubmatch(match)
+		if len(submatch) < 2 {
+			return match
+		}
+		mediaID := submatch[1]
+
+		// Haal het relatieve pad op uit de database
+		var relativePath string
+		query := `
+			SELECT value 
+			FROM parameter_values 
+			WHERE target_id = ? 
+			  AND parameter_id = '01a0108f-3880-752d-b961-9e50e167028d' 
+			  AND (deleted_at IS NULL OR deleted_at = '')
+			LIMIT 1
+		`
+		err := a.db.QueryRow(query, mediaID).Scan(&relativePath)
+		if err != nil || relativePath == "" {
+			return match
+		}
+
+		cleanRelativePath := strings.TrimPrefix(relativePath, "/")
+
+		if isPDF {
+			// Voor PDF: gebruik het directe schijfpad zodat de PDF-generator de foto direct vanaf T:/ inleest
+			fullPath := "T:/Media/" + cleanRelativePath
+			normalizedPath := strings.ReplaceAll(fullPath, "\\", "/")
+			return `src="file:///` + normalizedPath + `"`
+		} else {
+			// Voor HTML: gebruik de WampServer localhost alias
+			return `src="http://localhost/media-archive/` + cleanRelativePath + `"`
+		}
+	})
+}
 
 // ExportBookReportToHTML opent een SaveFileDialog en slaat het rapport op als zelfstandig HTML-bestand
 func (a *App) ExportBookReportToHTML(rootID string, maxDepth int, templateID string) (string, error) {
@@ -19,7 +65,9 @@ func (a *App) ExportBookReportToHTML(rootID string, maxDepth int, templateID str
 		return "", fmt.Errorf("fout bij genereren rapport: %w", err)
 	}
 
-	fullDocumentHTML := wrapInFullHTMLDocument(reportHTML)
+	// Vertaal media:// naar http://localhost/media-archive/... voor HTML export
+	processedHTML := a.ProcessReportImagesForExport(reportHTML, false)
+	fullDocumentHTML := wrapInFullHTMLDocument(processedHTML)
 
 	defaultFileName := fmt.Sprintf("Rapport_%s_%s.html", rootID, time.Now().Format("20060102_1504"))
 	savePath, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
@@ -66,7 +114,10 @@ func (a *App) ExportBookReportToPDF(rootID string, maxDepth int, templateID stri
 		return "", fmt.Errorf("fout bij genereren rapport: %w", err)
 	}
 
-	fullHTML := wrapInFullHTMLDocument(reportHTML)
+	// Vertaal media:// naar file:///T:/Media/... zodat Puppeteer de afbeeldingen lokaal kan inlezen voor de PDF
+	processedHTML := a.ProcessReportImagesForExport(reportHTML, true)
+	fullHTML := wrapInFullHTMLDocument(processedHTML)
+
 	if err := os.WriteFile(tempHTMLPath, []byte(fullHTML), 0644); err != nil {
 		return "", fmt.Errorf("fout bij maken tijdelijke HTML: %w", err)
 	}
@@ -172,55 +223,86 @@ func wrapInFullHTMLDocument(bodyHTML string) string {
             color: inherit;
         }
 
-        /* Container- & Zoomafhandeling voor Afbeeldingen */
-        .ProseMirror img,
-        .report-content img,
-        .editable-richtext img,
-        .book-report-wrapper img {
-            max-width: 100% !important;
-            height: auto !important;
-            display: block;
-            border-radius: 4px;
-        }
-
-        figure, div[data-layout] {
+        /* ==========================================
+           FOTO'S & LAYOUTS (Figure & Figcaption)
+           ========================================== */
+        .book-report-wrapper figure,
+        .report-content figure,
+        figure {
+            margin: 1rem 0;
             max-width: 100%;
-            overflow: hidden;
-            border-radius: 4px;
+            box-sizing: border-box;
         }
 
-        img[data-layout="inline-center"] {
-            margin: 12px auto !important;
-        }
-        img[data-layout="inline-left"] {
-            float: left !important;
-            margin: 0 16px 12px 0 !important;
-            max-width: 48% !important;
-        }
-        img[data-layout="inline-right"] {
-            float: right !important;
-            margin: 0 0 12px 16px !important;
-            max-width: 48% !important;
-        }
-        img[data-layout="span-all"] {
-            grid-column: 1 / -1;
+        .book-report-wrapper figure img,
+        .report-content figure img,
+        figure img {
             width: 100% !important;
             max-width: 100% !important;
-            margin: 16px 0 !important;
+            height: auto !important;
+            border-radius: 4px;
+            display: block;
         }
 
-        .editable-richtext::after,
-        .book-report-wrapper::after {
+        .book-report-wrapper figure figcaption,
+        .report-content figure figcaption,
+        figure figcaption {
+            font-size: 0.85rem;
+            color: #64748b;
+            text-align: center;
+            margin-top: 0.4rem;
+            font-style: italic;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* Links uitlijnen (exact 50% breedte met tekst ernaast) */
+        figure[data-layout="inline-left"] {
+            float: left !important;
+            width: 50% !important;
+            max-width: 50% !important;
+            box-sizing: border-box !important;
+            margin: 0.25rem 1.5rem 0.75rem 0 !important;
+        }
+
+        /* Rechts uitlijnen (exact 50% breedte met tekst ernaast) */
+        figure[data-layout="inline-right"] {
+            float: right !important;
+            width: 50% !important;
+            max-width: 50% !important;
+            box-sizing: border-box !important;
+            margin: 0.25rem 0 0.75rem 1.5rem !important;
+        }
+
+        /* Centreren (80% breedte, zonder tekst ernaast) */
+        figure[data-layout="inline-center"] {
+            display: block !important;
+            width: 80% !important;
+            max-width: 80% !important;
+            margin: 1rem auto !important;
+        }
+
+        /* Volledige breedte (100%) */
+        figure[data-layout="span-all"] {
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 1.5rem auto !important;
+        }
+
+        /* Clearfix zodat lopende tekst de zwevende afbeeldingen netjes omsluit */
+        .book-report-wrapper::after,
+        .report-content::after,
+        body::after {
             content: "";
             display: table;
             clear: both;
         }
 
-            .report-abbr {
-    cursor: help;
-    text-decoration: none;
-}
-    
+        .report-abbr {
+            cursor: help;
+            text-decoration: none;
+        }
 
         @media print {
             body { padding: 0; }

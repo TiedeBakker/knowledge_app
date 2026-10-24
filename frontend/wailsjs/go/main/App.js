@@ -114,6 +114,10 @@ export function GetParsedTemplateById(arg1) {
   return window['go']['main']['App']['GetParsedTemplateById'](arg1);
 }
 
+export function GetPhotoFilePath(arg1) {
+  return window['go']['main']['App']['GetPhotoFilePath'](arg1);
+}
+
 export function GetRelationsForTarget(arg1) {
   return window['go']['main']['App']['GetRelationsForTarget'](arg1);
 }
@@ -136,6 +140,10 @@ export function OpenFile(arg1) {
 
 export function PreviewSQLQuery(arg1) {
   return window['go']['main']['App']['PreviewSQLQuery'](arg1);
+}
+
+export function ProcessReportImagesForExport(arg1, arg2) {
+  return window['go']['main']['App']['ProcessReportImagesForExport'](arg1, arg2);
 }
 
 export function ReindexOutgoingRelations(arg1) {

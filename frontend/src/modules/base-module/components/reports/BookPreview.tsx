@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { resolveMediaHtml } from '../../../../../../frontend/src/utils/mediaHelper';
 
 interface BookPreviewProps {
   htmlContent: string;
@@ -11,10 +12,40 @@ export const BookPreview: React.FC<BookPreviewProps> = ({
   onOpenObjectEditor,
   onOpenRichTextEditor,
 }) => {
+  const [processedHtml, setProcessedHtml] = useState<string>('');
 
-  // Handler voor dubbelklikken op bewerkbare teksten / titels
+  // Vertaal media:// naar http://localhost/media-archive/... zodra htmlContent wijzigt
+  useEffect(() => {
+    let isMounted = true;
+    async function processContent() {
+      if (!htmlContent) {
+        setProcessedHtml('');
+        return;
+      }
+      const resolved = await resolveMediaHtml(htmlContent);
+      if (isMounted) {
+        setProcessedHtml(resolved);
+      }
+    }
+    processContent();
+    return () => {
+      isMounted = false;
+    };
+  }, [htmlContent]);
+
+  // Handler voor dubbelklikken op bewerkbare teksten / titels / foto's
   const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
+
+    // Check voor dubbelklik op een foto / figuur (indien je ook direct vanuit de preview wilt kunnen bewerken)
+    const figureEl = target.closest('figure, img') as HTMLElement;
+    if (figureEl) {
+      const mediaId = figureEl.getAttribute('data-media-id') || figureEl.querySelector('img')?.getAttribute('data-media-id');
+      if (mediaId && onOpenRichTextEditor) {
+        // Indien gewenst kun je hier eventueel ook een actie koppelen, 
+        // maar de richtext editor modal handelt foto's al af via de dubbelklik in de editor.
+      }
+    }
 
     // Check voor dubbelklik op een titel/kop met object ID
     const headingEl = target.closest('[data-object-id]') as HTMLElement;
@@ -71,13 +102,14 @@ export const BookPreview: React.FC<BookPreviewProps> = ({
       }
     }
   };
+
   return (
     <div
       className="book-report-wrapper"
       onClick={handlePreviewClick}
       onDoubleClick={handleDoubleClick}
       style={{ minHeight: '100%', cursor: 'pointer' }}
-      dangerouslySetInnerHTML={{ __html: htmlContent }}
+      dangerouslySetInnerHTML={{ __html: processedHtml }}
     />
   );
 };

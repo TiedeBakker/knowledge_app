@@ -1501,3 +1501,29 @@ func (a *App) DeleteParameterValue(id string) error {
 	_, err := a.db.ExecContext(a.ctx, query, now, now, id)
 	return err
 }
+
+// GetPhotoFilePath zoekt het bestandspad op voor een gegeven Foto-object ID
+func (a *App) GetPhotoFilePath(photoObjectID string) string {
+	if a.db == nil {
+		return ""
+	}
+
+	var relativePath string
+	query := `
+		SELECT value 
+		FROM parameter_values 
+		WHERE target_id = ? 
+		  AND parameter_id = '01a0108f-3880-752d-b961-9e50e167028d' 
+		  AND (deleted_at IS NULL OR deleted_at = '')
+		LIMIT 1
+	`
+	err := a.db.QueryRow(query, photoObjectID).Scan(&relativePath)
+	if err != nil || relativePath == "" {
+		return ""
+	}
+
+	// Koppel het aan je WAMP alias pad
+	// Dit mapt direct naar Alias /media-archive "T:/Media/"
+	localUrl := fmt.Sprintf("http://localhost/media-archive/%s", strings.TrimPrefix(relativePath, "/"))
+	return localUrl
+}

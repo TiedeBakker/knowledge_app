@@ -14,6 +14,7 @@ import (
 )
 
 // ProcessReportImagesForExport past de media-links aan voor HTML- of PDF-export
+// ProcessReportImagesForExport vervangt media:// tags voor export door ingesloten Base64 data
 func (a *App) ProcessReportImagesForExport(htmlContent string, isPDF bool) string {
 	if a.db == nil {
 		return htmlContent
@@ -29,32 +30,13 @@ func (a *App) ProcessReportImagesForExport(htmlContent string, isPDF bool) strin
 		}
 		mediaID := submatch[1]
 
-		// Haal het relatieve pad op uit de database
-		var relativePath string
-		query := `
-			SELECT value 
-			FROM parameter_values 
-			WHERE target_id = ? 
-			  AND parameter_id = '01a0108f-3880-752d-b961-9e50e167028d' 
-			  AND (deleted_at IS NULL OR deleted_at = '')
-			LIMIT 1
-		`
-		err := a.db.QueryRow(query, mediaID).Scan(&relativePath)
-		if err != nil || relativePath == "" {
+		// Hergebruik de GetPhotoFilePath logica om direct de Base64 string op te halen
+		dataUri := a.GetPhotoFilePath(mediaID)
+		if dataUri == "" {
 			return match
 		}
 
-		cleanRelativePath := strings.TrimPrefix(relativePath, "/")
-
-		if isPDF {
-			// Voor PDF: gebruik het directe schijfpad zodat de PDF-generator de foto direct vanaf T:/ inleest
-			fullPath := "T:/Media/" + cleanRelativePath
-			normalizedPath := strings.ReplaceAll(fullPath, "\\", "/")
-			return `src="file:///` + normalizedPath + `"`
-		} else {
-			// Voor HTML: gebruik de WampServer localhost alias
-			return `src="http://localhost/media-archive/` + cleanRelativePath + `"`
-		}
+		return `src="` + dataUri + `"`
 	})
 }
 
@@ -303,6 +285,49 @@ func wrapInFullHTMLDocument(bodyHTML string) string {
             cursor: help;
             text-decoration: none;
         }
+
+        /* ==========================================
+   FLEXIBELE FOTO BREEDTES & TEKSTOMLOOP
+   ========================================== */
+figure {
+  box-sizing: border-box;
+}
+
+/* Breedte sturing */
+figure[data-width="25%"] { width: 25% !important; max-width: 25% !important; }
+figure[data-width="33%"] { width: 32% !important; max-width: 32% !important; }
+figure[data-width="50%"] { width: 48% !important; max-width: 48% !important; }
+figure[data-width="75%"] { width: 75% !important; max-width: 75% !important; }
+figure[data-width="100%"] { width: 100% !important; max-width: 100% !important; }
+
+/* Tekstomloop sturing */
+figure[data-text-flow="wrap"][data-layout="inline-left"] {
+  float: left !important;
+  clear: none !important;
+  margin: 0.25rem 1.5rem 0.75rem 0 !important;
+}
+
+figure[data-text-flow="wrap"][data-layout="inline-right"] {
+  float: right !important;
+  clear: none !important;
+  margin: 0.25rem 0 0.75rem 1.5rem !important;
+}
+
+/* Als tekstomloop op 'below' staat, dwingen we de figuur als blok en start de tekst eronder */
+figure[data-text-flow="below"] {
+  float: none !important;
+  display: block !important;
+  clear: both !important;
+  margin: 1.5rem auto !important;
+}
+
+/* Automatisch naast elkaar uitlijnen bij 25% of 33% met wrap */
+figure[data-text-flow="wrap"][data-width="25%"],
+figure[data-text-flow="wrap"][data-width="33%"] {
+  float: left !important;
+  margin-right: 2% !important;
+  margin-bottom: 1rem !important;
+}
 
         @media print {
             body { padding: 0; }

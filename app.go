@@ -1502,8 +1502,8 @@ func (a *App) DeleteParameterValue(id string) error {
 	return err
 }
 
-// GetPhotoFilePath zoekt het bestandspad op voor een gegeven Foto-object ID
-func (a *App) GetPhotoFilePath(photoObjectID string) string {
+// GetPhotoFilePath leest de foto direct van de T:-schijf en levert een tijdelijke Base64 Data URI op
+func (a *App) GetPhotoFilePath(mediaID string) string {
 	if a.db == nil {
 		return ""
 	}
@@ -1517,13 +1517,32 @@ func (a *App) GetPhotoFilePath(photoObjectID string) string {
 		  AND (deleted_at IS NULL OR deleted_at = '')
 		LIMIT 1
 	`
-	err := a.db.QueryRow(query, photoObjectID).Scan(&relativePath)
+	err := a.db.QueryRow(query, mediaID).Scan(&relativePath)
 	if err != nil || relativePath == "" {
 		return ""
 	}
 
-	// Koppel het aan je WAMP alias pad
-	// Dit mapt direct naar Alias /media-archive "T:/Media/"
-	localUrl := fmt.Sprintf("http://localhost/media-archive/%s", strings.TrimPrefix(relativePath, "/"))
-	return localUrl
+	cleanRelativePath := strings.TrimPrefix(relativePath, "/")
+	fullPath := "T:/Media/" + cleanRelativePath
+
+	// Lees het bestand direct in vanaf de T:-schijf
+	fileBytes, err := os.ReadFile(fullPath)
+	if err != nil {
+		return ""
+	}
+
+	// Bepaal het juiste mime-type
+	mimeType := "image/jpeg"
+	lowerPath := strings.ToLower(fullPath)
+	if strings.HasSuffix(lowerPath, ".png") {
+		mimeType = "image/png"
+	} else if strings.HasSuffix(lowerPath, ".gif") {
+		mimeType = "image/gif"
+	} else if strings.HasSuffix(lowerPath, ".webp") {
+		mimeType = "image/webp"
+	}
+
+	// Converteer naar Base64 Data URI
+	base64String := base64.StdEncoding.EncodeToString(fileBytes)
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64String)
 }

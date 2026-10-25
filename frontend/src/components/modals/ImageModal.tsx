@@ -5,6 +5,8 @@ import { main } from '../../../wailsjs/go/models';
 export interface ImageModalData {
   mediaId: string;
   layout: 'inline-left' | 'inline-right' | 'inline-center' | 'span-all';
+  width: string;
+  textFlow: string;
   caption: string;
 }
 
@@ -22,11 +24,15 @@ export const ImageModal: React.FC<ImageModalProps> = ({
   onSave,
 }) => {
   const [selectedNode, setSelectedNode] = useState<main.ObjectEntity | null>(null);
+  const [width, setWidth] = useState<string>('50%');
+  const [textFlow, setTextFlow] = useState<string>('wrap');
   const [layout, setLayout] = useState<ImageModalData['layout']>('inline-left');
   const [caption, setCaption] = useState<string>('');
 
   useEffect(() => {
     if (initialData) {
+      setWidth(initialData.width || '50%');
+      setTextFlow(initialData.textFlow || 'wrap');
       setLayout(initialData.layout || 'inline-left');
       setCaption(initialData.caption || '');
       if (initialData.mediaId) {
@@ -39,6 +45,8 @@ export const ImageModal: React.FC<ImageModalProps> = ({
       }
     } else {
       setSelectedNode(null);
+      setWidth('50%');
+      setTextFlow('wrap');
       setLayout('inline-left');
       setCaption('');
     }
@@ -52,9 +60,19 @@ export const ImageModal: React.FC<ImageModalProps> = ({
       return;
     }
 
+    // Bepaal automatisch het juiste layout-type op basis van width en textFlow
+    let computedLayout = layout;
+    if (width === '100%') {
+      computedLayout = 'span-all';
+    } else if (textFlow === 'below') {
+      computedLayout = 'inline-center';
+    }
+
     onSave({
       mediaId: selectedNode.id,
-      layout,
+      layout: computedLayout,
+      width,
+      textFlow,
       caption,
     });
   };
@@ -107,41 +125,75 @@ export const ImageModal: React.FC<ImageModalProps> = ({
           />
         </div>
 
-        {/* 2. WEERGAVE & UITLIJNING */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
-            Weergave & Uitlijning
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            {[
-              { id: 'inline-left', label: '👈 Links (50%)' },
-              { id: 'inline-right', label: '👉 Rechts (50%)' },
-              { id: 'inline-center', label: '↔️ Midden (80%)' },
-              { id: 'span-all', label: '↔️ Volle breedte (100%)' },
-            ].map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setLayout(item.id as ImageModalData['layout'])}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '4px',
-                  border: layout === item.id ? '2px solid #005fb8' : '1px solid #ccc',
-                  backgroundColor: layout === item.id ? '#e6f2ff' : '#fff',
-                  color: layout === item.id ? '#005fb8' : '#333',
-                  fontWeight: layout === item.id ? 600 : 400,
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  textAlign: 'left',
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
+        {/* 2. BREEDTE & TEKSTOMLOOP */}
+        <div style={{ display: 'flex', gap: '16px' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+              Breedte
+            </label>
+            <select
+              value={width}
+              onChange={(e) => setWidth(e.target.value)}
+              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9rem' }}
+            >
+              <option value="25%">25% (4 naast elkaar)</option>
+              <option value="33%">33% (3 naast elkaar)</option>
+              <option value="50%">50% (2 naast elkaar)</option>
+              <option value="75%">75%</option>
+              <option value="100%">100% (Volle breedte)</option>
+            </select>
+          </div>
+
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+              Tekstomloop
+            </label>
+            <select
+              value={textFlow}
+              onChange={(e) => setTextFlow(e.target.value)}
+              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9rem' }}
+            >
+              <option value="wrap">Tekst ernaast vloeien</option>
+              <option value="below">Vervolgtekst eronder</option>
+            </select>
           </div>
         </div>
 
-        {/* 3. ONDERTITEL */}
+        {/* 3. UITLIJNING (Alleen actief als breedte < 100% en tekst omloopt) */}
+        {width !== '100%' && textFlow === 'wrap' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+              Uitlijning
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              {[
+                { id: 'inline-left', label: '👈 Links' },
+                { id: 'inline-right', label: '👉 Rechts' },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setLayout(item.id as ImageModalData['layout'])}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    border: layout === item.id ? '2px solid #005fb8' : '1px solid #ccc',
+                    backgroundColor: layout === item.id ? '#e6f2ff' : '#fff',
+                    color: layout === item.id ? '#005fb8' : '#333',
+                    fontWeight: layout === item.id ? 600 : 400,
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    textAlign: 'left',
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 4. ONDERTITEL */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
             Ondertitel (Bijschrift)

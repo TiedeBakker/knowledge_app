@@ -1,64 +1,65 @@
 #app {
-    height: 100vh;
-    text-align: left;
+  height: 100vh;
+  text-align: left;
 }
-#root{
-    text-align: left;
+
+#root {
+  text-align: left;
 }
 
 #logo {
-    display: block;
-    width: 50%;
-    height: 50%;
-    margin: auto;
-    padding: 10% 0 0;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: 100% 100%;
-    background-origin: content-box;
+  display: block;
+  width: 50%;
+  height: 50%;
+  margin: auto;
+  padding: 10% 0 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  background-origin: content-box;
 }
 
 .result {
-    height: 20px;
-    line-height: 20px;
-    margin: 1.5rem auto;
+  height: 20px;
+  line-height: 20px;
+  margin: 1.5rem auto;
 }
 
 .input-box .btn {
-    width: 60px;
-    height: 30px;
-    line-height: 30px;
-    border-radius: 3px;
-    border: none;
-    margin: 0 0 0 20px;
-    padding: 0 8px;
-    cursor: pointer;
+  width: 60px;
+  height: 30px;
+  line-height: 30px;
+  border-radius: 3px;
+  border: none;
+  margin: 0 0 0 20px;
+  padding: 0 8px;
+  cursor: pointer;
 }
 
 .input-box .btn:hover {
-    background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%);
-    color: #333333;
+  background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%);
+  color: #333333;
 }
 
 .input-box .input {
-    border: none;
-    border-radius: 3px;
-    outline: none;
-    height: 30px;
-    line-height: 30px;
-    padding: 0 10px;
-    background-color: rgba(240, 240, 240, 1);
-    -webkit-font-smoothing: antialiased;
+  border: none;
+  border-radius: 3px;
+  outline: none;
+  height: 30px;
+  line-height: 30px;
+  padding: 0 10px;
+  background-color: rgba(240, 240, 240, 1);
+  -webkit-font-smoothing: antialiased;
 }
 
 .input-box .input:hover {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+  border: none;
+  background-color: rgba(255, 255, 255, 1);
 }
 
 .input-box .input:focus {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+  border: none;
+  background-color: rgba(255, 255, 255, 1);
 }
 
 /* Zorg dat formulierblokken netjes links opgelijnd blijven */
@@ -103,35 +104,29 @@
   box-sizing: border-box;
 }
 
-/* Links uitlijnen (exact 50% breedte met tekst ernaast) */
+/* Links uitlijnen (alleen float en marges, GEEN vaste breedte hier!) */
 .v2-report-container figure[data-layout="inline-left"],
 .editable-richtext figure[data-layout="inline-left"],
 .ProseMirror figure[data-layout="inline-left"] {
   float: left !important;
-  width: 50% !important;
-  max-width: 50% !important;
   box-sizing: border-box !important;
   margin: 0.25rem 1.5rem 0.75rem 0 !important;
 }
 
-/* Rechts uitlijnen (exact 50% breedte met tekst ernaast) */
+/* Rechts uitlijnen (alleen float en marges, GEEN vaste breedte hier!) */
 .v2-report-container figure[data-layout="inline-right"],
 .editable-richtext figure[data-layout="inline-right"],
 .ProseMirror figure[data-layout="inline-right"] {
   float: right !important;
-  width: 50% !important;
-  max-width: 50% !important;
   box-sizing: border-box !important;
   margin: 0.25rem 0 0.75rem 1.5rem !important;
 }
 
-/* Centreren (80% breedte, zonder tekst ernaast) */
+/* Centreren (zonder tekst ernaast) */
 .v2-report-container figure[data-layout="inline-center"],
 .editable-richtext figure[data-layout="inline-center"],
 .ProseMirror figure[data-layout="inline-center"] {
   display: block !important;
-  width: 80% !important;
-  max-width: 80% !important;
   margin: 1rem auto !important;
 }
 
@@ -145,24 +140,68 @@
   margin: 1.5rem auto !important;
 }
 
-
-/* Clearfix zodat lopende tekst de zwevende afbeeldingen netjes omsluit */
-.v2-report-container td::after,
-.v2-node-wrapper::after,
-.editable-richtext::after,
-.ProseMirror::after {
-  content: "";
-  display: table;
-  clear: both;
+/* ==========================================
+   FLEXIBELE FOTO BREEDTES (data-width)
+   ========================================== */
+.v2-report-container figure[data-width="25%"],
+.editable-richtext figure[data-width="25%"],
+.ProseMirror figure[data-width="25%"] {
+  width: 25% !important;
+  max-width: 25% !important;
 }
 
+.v2-report-container figure[data-width="33%"],
+.editable-richtext figure[data-width="33%"],
+.ProseMirror figure[data-width="33%"] {
+  width: 32% !important;
+  max-width: 32% !important;
+}
+
+.v2-report-container figure[data-width="50%"],
+.editable-richtext figure[data-width="50%"],
+.ProseMirror figure[data-width="50%"] {
+  width: 48% !important;
+  max-width: 48% !important;
+}
+
+.v2-report-container figure[data-width="75%"],
+.editable-richtext figure[data-width="75%"],
+.ProseMirror figure[data-width="75%"] {
+  width: 75% !important;
+  max-width: 75% !important;
+}
+
+.v2-report-container figure[data-width="100%"],
+.editable-richtext figure[data-width="100%"],
+.ProseMirror figure[data-width="100%"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  float: none !important;
+  clear: both !important;
+}
+
+/* Tekstomloop op 'below' dwingt de figuur als blok */
+.v2-report-container figure[data-text-flow="below"],
+.editable-richtext figure[data-text-flow="below"],
+.ProseMirror figure[data-text-flow="below"] {
+  float: none !important;
+  display: block !important;
+  clear: both !important;
+  margin: 1.5rem auto !important;
+}
 
 /* ==========================================
    PRINT STYLING
    ========================================== */
 @media print {
+
   /* 1. Reset alle Viewport Hoogtes (100vh) */
-  html, body, #app, #root, .app-container, .sidebar {
+  html,
+  body,
+  #app,
+  #root,
+  .app-container,
+  .sidebar {
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
@@ -170,8 +209,8 @@
   }
 
   /* 2. Verberg UI-elementen die niet op het rapport horen */
-  .sidebar, 
-  .modal-overlay, 
+  .sidebar,
+  .modal-overlay,
   .nav-button,
   .modal-footer {
     display: none !important;
@@ -186,7 +225,8 @@
   }
 
   /* 4. Reset Grid & Flexbox overlays voor print */
-  .row-top, .row-bottom {
+  .row-top,
+  .row-bottom {
     display: block !important;
     min-height: auto !important;
     page-break-inside: avoid;
@@ -200,4 +240,66 @@
     color: #000000 !important;
     background: transparent !important;
   }
+}
+
+/* ==========================================
+   FLEXIBELE FOTO BREEDTES & TEKSTOMLOOP
+   ========================================== */
+figure {
+  box-sizing: border-box;
+}
+
+/* Breedte sturing */
+figure[data-width="25%"] {
+  width: 25% !important;
+  max-width: 25% !important;
+}
+
+figure[data-width="33%"] {
+  width: 32% !important;
+  max-width: 32% !important;
+}
+
+figure[data-width="50%"] {
+  width: 48% !important;
+  max-width: 48% !important;
+}
+
+figure[data-width="75%"] {
+  width: 75% !important;
+  max-width: 75% !important;
+}
+
+figure[data-width="100%"] {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Tekstomloop sturing */
+figure[data-text-flow="wrap"][data-layout="inline-left"] {
+  float: left !important;
+  clear: none !important;
+  margin: 0.25rem 1.5rem 0.75rem 0 !important;
+}
+
+figure[data-text-flow="wrap"][data-layout="inline-right"] {
+  float: right !important;
+  clear: none !important;
+  margin: 0.25rem 0 0.75rem 1.5rem !important;
+}
+
+/* Als tekstomloop op 'below' staat, dwingen we de figuur als blok en start de tekst eronder */
+figure[data-text-flow="below"] {
+  float: none !important;
+  display: block !important;
+  clear: both !important;
+  margin: 1.5rem auto !important;
+}
+
+/* Automatisch naast elkaar uitlijnen bij 25% of 33% met wrap */
+figure[data-text-flow="wrap"][data-width="25%"],
+figure[data-text-flow="wrap"][data-width="33%"] {
+  float: left !important;
+  margin-right: 2% !important;
+  margin-bottom: 1rem !important;
 }

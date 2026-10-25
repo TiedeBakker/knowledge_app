@@ -10,9 +10,8 @@ import Link from '@tiptap/extension-link';
 import {
   Bold, Italic, List, ListOrdered, Heading1, Heading2,
   Quote, X, Save, Highlighter, Palette,
-  Maximize2, Minimize2, Code, FolderOpen, Link as LinkIcon, Unlink
+  Maximize2, Minimize2, Code, Link as LinkIcon, Unlink
 } from 'lucide-react';
-import { GetLocalImageBase64, SelectImageFile } from '../../wailsjs/go/main/App';
 
 // Importeer de NodeSearchSelector (controleer eventueel het relatieve pad)
 import { NodeSearchSelector } from '../modules/base-module/components/NodeSearchSelector';
@@ -20,7 +19,6 @@ import { SearchableObject } from '../modules/base-module/utils/searchUtils';
 import { ImageModal, ImageModalData } from './modals/ImageModal';
 import { resolveMediaHtml } from '../utils/mediaHelper';
 import { GetPhotoFilePath } from '../../wailsjs/go/main/App';
-
 
 // Custom Tiptap Link extension met 'data-object-id' ondersteuning
 const CustomLink = Link.extend({
@@ -74,6 +72,28 @@ const CustomImage = Image.extend({
           return { 'data-layout': attributes['data-layout'] };
         },
       },
+      'data-width': {
+        default: '50%',
+        parseHTML: (element) => {
+          const figure = element.closest('figure') || (element.tagName === 'FIGURE' ? element : null);
+          return figure?.getAttribute('data-width') || '50%';
+        },
+        renderHTML: (attributes) => {
+          if (!attributes['data-width']) return {};
+          return { 'data-width': attributes['data-width'] };
+        },
+      },
+      'data-text-flow': {
+        default: 'wrap',
+        parseHTML: (element) => {
+          const figure = element.closest('figure') || (element.tagName === 'FIGURE' ? element : null);
+          return figure?.getAttribute('data-text-flow') || 'wrap';
+        },
+        renderHTML: (attributes) => {
+          if (!attributes['data-text-flow']) return {};
+          return { 'data-text-flow': attributes['data-text-flow'] };
+        },
+      },
       'data-caption': {
         default: '',
         parseHTML: (element) => {
@@ -94,21 +114,52 @@ const CustomImage = Image.extend({
     };
   },
 
+  parseHTML() {
+    return [
+      {
+        tag: 'figure',
+        getAttrs: (node) => {
+          const element = node as HTMLElement;
+          return element.querySelector('img') ? null : false;
+        },
+      },
+      {
+        tag: 'img[src]',
+      },
+    ];
+  },
+
   renderHTML({ HTMLAttributes }) {
     const layout = HTMLAttributes['data-layout'] || 'inline-left';
+    const width = HTMLAttributes['data-width'] || '50%';
+    const textFlow = HTMLAttributes['data-text-flow'] || 'wrap';
     const caption = HTMLAttributes['data-caption'] || '';
     const mediaId = HTMLAttributes['data-media-id'] || '';
 
     const figure = document.createElement('figure');
     figure.setAttribute('data-layout', layout);
+    figure.setAttribute('data-width', width);
+    figure.setAttribute('data-text-flow', textFlow);
     if (mediaId) figure.setAttribute('data-media-id', mediaId);
     if (caption) figure.setAttribute('data-caption', caption);
+
     figure.className = `image-wrapper layout-${layout}`;
+    figure.style.width = width;
+    figure.style.boxSizing = 'border-box';
+
+    if (textFlow === 'wrap' && width !== '100%') {
+      if (layout === 'inline-right') {
+        figure.style.cssText += 'float: right !important; margin: 0.25rem 0 0.75rem 1.5rem !important; clear: none !important;';
+      } else {
+        figure.style.cssText += 'float: left !important; margin: 0.25rem 1.5rem 0.75rem 0 !important; clear: none !important;';
+      }
+    } else {
+      figure.style.cssText += 'float: none !important; display: block !important; clear: both !important; margin: 1.5rem auto !important;';
+    }
 
     const img = document.createElement('img');
     img.setAttribute('src', HTMLAttributes['src'] || '');
     if (mediaId) img.setAttribute('data-media-id', mediaId);
-    if (layout) img.setAttribute('data-layout', layout);
     if (caption) {
       img.setAttribute('data-caption', caption);
       img.setAttribute('alt', caption);
@@ -125,7 +176,6 @@ const CustomImage = Image.extend({
     return figure;
   },
 });
-type ImageLayoutType = 'inline-left' | 'inline-right' | 'inline-center' | 'span-all';
 
 interface RichTextEditorModalProps {
   isOpen: boolean;
@@ -133,7 +183,7 @@ interface RichTextEditorModalProps {
   initialValue: string;
   title?: string;
   onSave: (htmlContent: string) => void;
-  availableObjects?: SearchableObject[]; // <--- Nieuwe prop voor de NodeSearchSelector
+  availableObjects?: SearchableObject[];
 }
 
 export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
@@ -142,60 +192,53 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
   initialValue,
   title = 'Tekst en Illustraties Bewerken',
   onSave,
-  availableObjects = [], // Default naar lege array indien niet meegegeven
+  availableObjects = [],
 }) => {
-  const [imageUrl, setImageUrl] = useState('');
-  const [imageLayout, setImageLayout] = useState<ImageLayoutType>('inline-center');
-  const [imageZoom] = useState('1');
-  const [imagePosition] = useState('center center');
-  const [showImageDialog, setShowImageDialog] = useState(false);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [editingImageData, setEditingImageData] = useState<ImageModalData | null>(null);
 
-  // Open de modal leeg vanuit de Toolbar-knop
   const handleOpenAddImage = () => {
     setEditingImageData(null);
     setIsImageModalOpen(true);
   };
 
-const handleEditorDoubleClick = (event: React.MouseEvent) => {
+  const handleEditorDoubleClick = (event: React.MouseEvent) => {
     if (!editor) return;
 
-    // Zoek het HTML element waar op geklikt is
     const target = event.target as HTMLElement;
     const element = target.closest('figure, img') as HTMLElement;
 
     if (element) {
       const imgElement = element.tagName === 'FIGURE' ? element.querySelector('img') : element;
-      
+
+      const width = element.getAttribute('data-width') || '50%';
+      const textFlow = element.getAttribute('data-text-flow') || 'wrap';
+      const layout = (element.getAttribute('data-layout') as any) || 'inline-left';
+      const caption = element.getAttribute('data-caption') || imgElement?.getAttribute('alt') || '';
       const mediaId = element.getAttribute('data-media-id') || imgElement?.getAttribute('data-media-id') || '';
-      const layout = (element.getAttribute('data-layout') || imgElement?.getAttribute('data-layout') as any) || 'inline-left';
-      const caption = element.getAttribute('data-caption') || imgElement?.getAttribute('data-caption') || '';
 
-      console.log("[Doubleclick] Gevonden afbeeldingsdata:", { mediaId, layout, caption });
-
-      setEditingImageData({ mediaId, layout, caption });
+      setEditingImageData({ mediaId, layout, caption, width, textFlow });
       setIsImageModalOpen(true);
     }
   };
-// Helper om bij opslaan de file:// paden weer terug te zetten naar media:// voor in de database
-const cleanHtmlForSave = (htmlContent: string): string => {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(htmlContent, 'text/html');
-  const images = doc.querySelectorAll('img[data-media-id]');
 
-  for (const img of Array.from(images)) {
-    const mediaId = img.getAttribute('data-media-id');
-    if (mediaId) {
-      img.setAttribute('src', `media://${mediaId}`);
+  const cleanHtmlForSave = (htmlContent: string): string => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+    const images = doc.querySelectorAll('img[data-media-id]');
+
+    for (const img of Array.from(images)) {
+      const mediaId = img.getAttribute('data-media-id');
+      if (mediaId) {
+        img.setAttribute('src', `media://${mediaId}`);
+      }
     }
-  }
 
-  return doc.body.innerHTML;
-};
-// Opslaan vanuit ImageModal (ondersteunt zowel nieuw toevoegen als bewerken)
+    return doc.body.innerHTML;
+  };
+
   const handleSaveImageModal = async (data: ImageModalData) => {
     if (editor) {
       let finalSrc = `media://${data.mediaId}`;
@@ -208,7 +251,6 @@ const cleanHtmlForSave = (htmlContent: string): string => {
         console.error("Kon afbeeldingspad niet ophalen:", err);
       }
 
-      // Als we aan het bewerken waren (editingImageData is niet null), update dan de node
       if (editingImageData) {
         editor
           .chain()
@@ -217,11 +259,12 @@ const cleanHtmlForSave = (htmlContent: string): string => {
             src: finalSrc,
             'data-media-id': data.mediaId,
             'data-layout': data.layout,
+            'data-width': data.width,
+            'data-text-flow': data.textFlow,
             'data-caption': data.caption,
           })
           .run();
       } else {
-        // Anders voegen we een nieuwe toe
         editor
           .chain()
           .focus()
@@ -229,6 +272,8 @@ const cleanHtmlForSave = (htmlContent: string): string => {
             src: finalSrc,
             'data-media-id': data.mediaId,
             'data-layout': data.layout,
+            'data-width': data.width,
+            'data-text-flow': data.textFlow,
             'data-caption': data.caption,
           } as any)
           .run();
@@ -237,6 +282,7 @@ const cleanHtmlForSave = (htmlContent: string): string => {
     setEditingImageData(null);
     setIsImageModalOpen(false);
   };
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -266,7 +312,6 @@ const cleanHtmlForSave = (htmlContent: string): string => {
       attributes: {
         class: 'prose focus:outline-none max-w-none',
       },
-      // Hier koppel je de dubbelklik-handler netjes in:
       handleDOMEvents: {
         dblclick: (_view, event) => {
           handleEditorDoubleClick(event as unknown as React.MouseEvent);
@@ -277,17 +322,16 @@ const cleanHtmlForSave = (htmlContent: string): string => {
   });
 
   useEffect(() => {
-  let isMounted = true;
-  async function loadContent() {
-    // initialValue is bijvoorbeeld de parameterwaarde uit de database met media://...
-    const resolvedHtml = await resolveMediaHtml(initialValue);
-    if (isMounted && editor) {
-      editor.commands.setContent(resolvedHtml);
+    let isMounted = true;
+    async function loadContent() {
+      const resolvedHtml = await resolveMediaHtml(initialValue);
+      if (isMounted && editor) {
+        editor.commands.setContent(resolvedHtml);
+      }
     }
-  }
-  loadContent();
-  return () => { isMounted = false; };
-}, [initialValue, editor]);
+    loadContent();
+    return () => { isMounted = false; };
+  }, [initialValue, editor]);
 
   useEffect(() => {
     if (editor && isOpen) {
@@ -297,45 +341,18 @@ const cleanHtmlForSave = (htmlContent: string): string => {
 
   if (!isOpen) return null;
 
-const handleSave = () => {
-  if (editor) {
-    const rawHtml = editor.getHTML();
-    const cleanHtml = cleanHtmlForSave(rawHtml); // Zet om naar media:// voor de database
-    onSave(cleanHtml);
-    onClose();
-  }
-};
-  const addOrUpdateImage = async () => {
-    if (imageUrl && editor) {
-      let finalSrc = imageUrl.trim();
-
-      if (/^[a-zA-Z]:[\\/]/.test(finalSrc)) {
-        try {
-          finalSrc = await GetLocalImageBase64(finalSrc);
-        } catch (err) {
-          alert('Kon lokaal bestand niet laden: ' + err);
-          return;
-        }
-      }
-
-      editor.chain().focus().setImage({
-        src: finalSrc,
-        // @ts-ignore custom attributes
-        'data-layout': imageLayout,
-        'data-zoom': imageZoom,
-        'data-position': imagePosition,
-      }).run();
-
-      setImageUrl('');
-      setShowImageDialog(false);
+  const handleSave = () => {
+    if (editor) {
+      const rawHtml = editor.getHTML();
+      const cleanHtml = cleanHtmlForSave(rawHtml);
+      onSave(cleanHtml);
+      onClose();
     }
   };
 
-  // Interne link invoegen op basis van het geselecteerde object
   const handleInsertObjectLink = (targetObject: SearchableObject) => {
     if (!editor) return;
 
-    // Gebruik expliciet '#node-' als anchor sodat dit matchet met de HTML/PDF koppen
     const anchorHref = `#node-${targetObject.id}`;
     const { from, to } = editor.state.selection;
     const hasSelection = from !== to;
@@ -401,17 +418,6 @@ const handleSave = () => {
       }
     }
     onClose();
-  };
-
-  const handleBrowseImage = async () => {
-    try {
-      const selectedPath = await SelectImageFile();
-      if (selectedPath) {
-        setImageUrl(selectedPath);
-      }
-    } catch (err) {
-      console.error('Fout bij selecteren afbeelding:', err);
-    }
   };
 
   return (
@@ -481,11 +487,9 @@ const handleSave = () => {
 
             <div style={{ width: '1px', height: '20px', background: '#cbd5e1', margin: '0 4px' }} />
 
-            {/* Interne Link Knop */}
             <button
               onClick={() => {
                 setShowLinkDialog(!showLinkDialog);
-                setShowImageDialog(false);
               }}
               style={buttonStyle(editor.isActive('link'))}
               title="Link naar ander Object toevoegen"
@@ -505,25 +509,15 @@ const handleSave = () => {
 
             <div style={{ width: '1px', height: '20px', background: '#cbd5e1', margin: '0 4px' }} />
 
-            {/* <button // OUDE INVOEGKNOP, VERVANGEN DOOR IMAGE MODAL
-              onClick={() => {
-                setShowImageDialog(!showImageDialog);
-                setShowLinkDialog(false);
-              }}
+            <button
+              type="button"
+              onClick={handleOpenAddImage}
+              title="Foto-object invoegen"
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
                 background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '4px',
                 color: '#0284c7', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500
               }}
-              title="Afbeelding / Illustratie Invoegen"
-            >
-              <ImageIcon size={16} />
-              <span>Afbeelding Invoegen</span>
-            </button> */}
-            <button
-              type="button"
-              onClick={handleOpenAddImage}
-              title="Foto-object invoegen"
             >
               🖼️ Foto invoegen
             </button>
@@ -555,54 +549,6 @@ const handleSave = () => {
                 placeholder="Zoek op label... (bijv. Organisatie##foto)"
               />
             </div>
-          </div>
-        )}
-
-        {/* Popover voor Afbeeldings opties */}
-        {showImageDialog && (
-          <div className="p-3 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center gap-3">
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="C:\Pad\naar\foto.jpg of https://..."
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                className="flex-1 px-3 py-1.5 border border-slate-300 rounded text-sm bg-white"
-              />
-              <button
-                type="button"
-                onClick={handleBrowseImage}
-                className="flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded text-sm text-slate-700 font-medium transition-colors"
-                title="Bladeren op computer"
-              >
-                <FolderOpen size={16} />
-                Bladeren...
-              </button>
-            </div>
-
-            <select
-              value={imageLayout}
-              onChange={(e) => setImageLayout(e.target.value as ImageLayoutType)}
-              className="px-2 py-1.5 border border-slate-300 rounded text-sm bg-white"
-            >
-              <option value="inline-center">Midden (Groot)</option>
-              <option value="inline-left">Links (Tekst eromheen)</option>
-              <option value="inline-right">Rechts (Tekst eromheen)</option>
-              <option value="span-all">Volledige breedte</option>
-            </select>
-
-            <button
-              onClick={addOrUpdateImage}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
-            >
-              Invoegen
-            </button>
-            <button
-              onClick={() => setShowImageDialog(false)}
-              className="px-3 py-1.5 bg-slate-300 text-slate-700 rounded text-sm font-medium hover:bg-slate-400"
-            >
-              Annuleren
-            </button>
           </div>
         )}
 

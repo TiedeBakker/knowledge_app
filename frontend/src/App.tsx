@@ -5,7 +5,8 @@ import { BaseModule } from './modules/base-module/BaseModule'; // Importeer de n
 import { ReportModule } from './modules/reporting/ReportModule';
 import { MediaImportModal } from './modules/import/MediaImportModal';
 import { ToolboxModule } from './modules/toolbox-module/ToolboxModule';
-import './App.css';
+import { MeetwaardenModule } from './modules/meetwaarden/MeetwaardenModule'; // Nieuw bestand
+import './App.css' ;
 
 export const App: React.FC = () => {
   const [activeModule, setActiveModule] = useState<ModuleType>('tree-viewer');
@@ -27,6 +28,7 @@ export const App: React.FC = () => {
       <main className="main-content" style={{ flex: 1, padding: '0', overflow: 'hidden', height: '100vh' }}>
         {activeModule === 'tree-viewer' && <TreeViewerModule />}
         {activeModule === 'base-module' && <BaseModule />}
+        {activeModule === 'meetwaarden' && <MeetwaardenModule />} {/* NIEUW */}
         {activeModule === 'reporting' && <ReportModule />}
         {activeModule === 'toolbox' && <ToolboxModule />}
 

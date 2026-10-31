@@ -1,3 +1,4 @@
+// src/components/ParameterSearchSelect.tsx
 import React, { useState, useCallback } from 'react';
 import AsyncSelect from 'react-select/async';
 import { SearchParametersForSelect } from '../../wailsjs/go/main/App';
@@ -50,13 +51,40 @@ export const ParameterSearchSelect: React.FC<Props> = ({ onSelect, isDisabled })
       placeholder="Zoek parameter..."
       isClearable
       noOptionsMessage={() => "Geen parameters gevonden"}
+      
+      /* PORTAL CONFIGURATIE VOOR GOEDE WEERGAVE BINNEN MODALS/CONTAINERS */
+      menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+      menuPosition="fixed"
+
       styles={{
         control: (base) => ({
           ...base,
           borderColor: '#ccc',
           boxShadow: 'none',
           minHeight: '32px',
+          backgroundColor: '#fff',
         }),
+        option: (base, state) => ({
+          ...base,
+          backgroundColor: state.isFocused ? '#e6f2ff' : '#ffffff',
+          color: '#333333',
+          cursor: 'pointer',
+          textAlign: 'left',
+          fontSize: '13px',
+        }),
+        singleValue: (base) => ({
+          ...base,
+          color: '#333333',
+        }),
+        menuPortal: (base) => ({
+          ...base,
+          zIndex: 9999,
+        }),
+        menuList: (base) => ({
+          ...base,
+          maxHeight: '250px',
+          backgroundColor: '#ffffff',
+        })
       }}
     />
   );

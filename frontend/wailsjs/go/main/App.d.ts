@@ -6,6 +6,8 @@ export function BatchCreateSubObjects(arg1:main.BatchCreateSubObjectsInput):Prom
 
 export function CreateComplexSubObject(arg1:main.CreateComplexSubObjectInput):Promise<string>;
 
+export function CreateMeetreeks(arg1:main.CreateMeetreeksInput):Promise<string>;
+
 export function CreateNewObject(arg1:string,arg2:string):Promise<string>;
 
 export function DeleteParameterValue(arg1:string):Promise<void>;
@@ -44,6 +46,10 @@ export function GetGraphNetwork(arg1:boolean,arg2:number):Promise<main.GraphData
 
 export function GetLocalImageBase64(arg1:string):Promise<string>;
 
+export function GetMeetreeksOptions(arg1:string):Promise<Array<main.MeetreeksOption>>;
+
+export function GetMeetwaardenForMeetreeks(arg1:string,arg2:number):Promise<Array<main.MeetwaardenRow>>;
+
 export function GetObjectById(arg1:string):Promise<main.ObjectEntity>;
 
 export function GetObjectTree(arg1:string,arg2:number):Promise<main.GraphNode>;
@@ -54,11 +60,19 @@ export function GetObjectsForSelect(arg1:string):Promise<Array<main.ObjectSelect
 
 export function GetObjectsForSelector():Promise<Array<main.SimpleObject>>;
 
+export function GetParameterGroups():Promise<Array<main.ParameterGroupItem>>;
+
+export function GetParametersForGroup(arg1:string):Promise<Array<main.ParameterDefinition>>;
+
+export function GetParametersForMeetreeks(arg1:string):Promise<Array<main.ParameterDefinition>>;
+
 export function GetParametersForTarget(arg1:string):Promise<Array<main.ParameterValueEntity>>;
 
 export function GetParsedTemplateById(arg1:string):Promise<main.ReportTemplateConfig>;
 
 export function GetPhotoFilePath(arg1:string):Promise<string>;
+
+export function GetPresentatieData(arg1:string,arg2:string):Promise<main.PresentatieResult>;
 
 export function GetRelationsForTarget(arg1:string):Promise<Array<main.RelationValueEntity>>;
 
@@ -81,6 +95,10 @@ export function SaveMasterParameter(arg1:main.ParameterMaster):Promise<void>;
 export function SaveMasterRelation(arg1:main.RelationMaster):Promise<void>;
 
 export function SaveMasterUnit(arg1:main.UnitMaster):Promise<void>;
+
+export function SaveOrUpdateMeetwaardenRow(arg1:main.SaveMeetwaardenInput):Promise<string>;
+
+export function SaveParameterGroup(arg1:main.SaveParameterGroupInput):Promise<string>;
 
 export function SaveParameterValue(arg1:main.ParameterValueEntity):Promise<void>;
 

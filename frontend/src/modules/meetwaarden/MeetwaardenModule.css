@@ -1,0 +1,12 @@
+/* src/modules/meetwaarden/MeetwaardenModule.css */
+.meetwaarden-module-container {
+  font-family: inherit;
+}
+
+.meetwaarden-module-container .tab-navigation button {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.meetwaarden-module-container .tab-navigation button:hover {
+  opacity: 0.9;
+}

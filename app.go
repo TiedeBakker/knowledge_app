@@ -16,6 +16,7 @@ import (
 	"runtime" // Standaard Go runtime package (voor runtime.GOOS)
 	"strings"
 	"time"
+	"encoding/json"
 	
 
 	_ "github.com/glebarez/go-sqlite"
@@ -1545,4 +1546,503 @@ func (a *App) GetPhotoFilePath(mediaID string) string {
 	// Converteer naar Base64 Data URI
 	base64String := base64.StdEncoding.EncodeToString(fileBytes)
 	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64String)
+}
+
+type ParameterGroupItem struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// GetParameterGroups haalt alle bestaande parametergroep objecten op
+func (a *App) GetParameterGroups() ([]ParameterGroupItem, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	query := `
+		SELECT o.id, o.label
+		FROM relation_values rv
+		JOIN objects o ON rv.target_id = o.id
+		WHERE rv.source_id = '01a17dae-1b7a-77ff-bc9a-fb0e592dd4ef'
+		  AND rv.relation_id = '019fcdd3-721a-7512-b755-cddd67f43eb6'
+		  AND rv.deleted_at IS NULL
+		  AND o.deleted_at IS NULL
+		ORDER BY o.label ASC
+	`
+	rows, err := a.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("fout bij ophalen parametergroepen: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []ParameterGroupItem
+	for rows.Next() {
+		var g ParameterGroupItem
+		if err := rows.Scan(&g.ID, &g.Label); err != nil {
+			continue
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+// GetParametersForGroup haalt de parameterset op die aan een parametergroep is gekoppeld
+// (via parameter_values met parameter_id = '01a17db5-0aa5-73d6-9200-b03be26a9eac')
+func (a *App) GetParametersForGroup(groupID string) ([]ParameterDefinition, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	// 1. Haal de JSON/reeks string op uit parameter_values
+	var rawValue string
+	queryVal := `
+		SELECT value 
+		FROM parameter_values 
+		WHERE target_id = ? 
+		  AND parameter_id = '01a17db5-0aa5-73d6-9200-b03be26a9eac'
+		  AND (deleted_at IS NULL OR deleted_at = '')
+		LIMIT 1
+	`
+	err := a.db.QueryRow(queryVal, groupID).Scan(&rawValue)
+	if err != nil {
+		// Als er nog geen waarde is, is de lijst leeg (geen fout)
+		return []ParameterDefinition{}, nil
+	}
+
+	// Stel dat rawValue een komma-gescheiden lijst of JSON array is van parameter IDs.
+	// Laten we aannemen dat het IDs bevat. We splitsen of parsen ze.
+	// (Als het JSON is, kun je evt.encoding/json gebruiken, of als het comma-separated IDs zijn:)
+	ids := strings.Split(rawValue, ",")
+	if len(ids) == 0 || (len(ids) == 1 && strings.TrimSpace(ids[0]) == "") {
+		return []ParameterDefinition{}, nil
+	}
+
+	// 2. Ha detalhes op voor deze parameters in de juiste volgorde
+	var results []ParameterDefinition
+	for _, pid := range ids {
+		pid = strings.TrimSpace(pid)
+		if pid == "" {
+			continue
+		}
+		var p ParameterDefinition
+		qParam := `SELECT id, label, code, data_type, unit FROM parameters WHERE id = ? AND deleted_at IS NULL`
+		err := a.db.QueryRow(qParam, pid).Scan(&p.ID, &p.Label, &p.Code, &p.DataType, &p.Unit)
+		if err == nil {
+			results = append(results, p)
+		}
+	}
+
+	return results, nil
+}
+
+type SaveParameterGroupInput struct {
+	GroupID      string   `json:"groupId"`      // Leeg bij nieuw
+	GroupLabel   string   `json:"groupLabel"`   // Naam van de groep
+	ParameterIDs []string `json:"parameterIds"` // Volgorde van parameter IDs
+}
+
+// SaveParameterGroup maakt een nieuwe parametergroep aan of werkt een bestaande bij
+func (a *App) SaveParameterGroup(input SaveParameterGroupInput) (string, error) {
+	if a.db == nil {
+		return "", fmt.Errorf("database niet verbonden")
+	}
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+	groupID := input.GroupID
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	// 1. Als groupID leeg is, maak een nieuw object aan én koppel aan stam-node
+	if groupID == "" {
+		groupID = NewUUIDv7()
+
+		// Maak object
+		_, err = tx.Exec(`
+			INSERT INTO objects (id, label, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, 0, ?, ?)
+		`, groupID, input.GroupLabel, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij aanmaken parametergroep object: %w", err)
+		}
+
+		// Tel uitgaande relaties voor volgorde
+		var existingCount int
+		_ = tx.QueryRow(`
+			SELECT COUNT(*) FROM relation_values WHERE source_id = '01a17dae-1b7a-77ff-bc9a-fb0e592dd4ef' AND deleted_at IS NULL
+		`, groupID).Scan(&existingCount)
+
+		// Leg relatie naar stam-node (relatie_id = 019fcdd3-721a-7512-b755-cddd67f43eb6)
+		relID := NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+			VALUES (?, '019fcdd3-721a-7512-b755-cddd67f43eb6', '01a17dae-1b7a-77ff-bc9a-fb0e592dd4ef', ?, ?, 0, ?, ?)
+		`, relID, groupID, existingCount+1, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij leggen relatie naar stam-node: %w", err)
+		}
+	} else {
+		// Update label van bestaand object
+		_, err = tx.Exec(`UPDATE objects SET label = ?, updated_at = ? WHERE id = ?`, input.GroupLabel, nowISO, groupID)
+		if err != nil {
+			return "", fmt.Errorf("fout bij bijwerken object label: %w", err)
+		}
+	}
+
+	// 2. Sla de parameterset op als parameter_value (parameter_id = '01a17db5-0aa5-73d6-9200-b03be26a9eac')
+	paramValuesStr := strings.Join(input.ParameterIDs, ",")
+
+	// Check of er al een parameter_value bestaat voor deze parameter en target
+	var pvID string
+	err = tx.QueryRow(`
+		SELECT id FROM parameter_values 
+		WHERE target_id = ? AND parameter_id = '01a17db5-0aa5-73d6-9200-b03be26a9eac' AND (deleted_at IS NULL OR deleted_at = '')
+		LIMIT 1
+	`, groupID).Scan(&pvID)
+
+	if err == sql.ErrNoRows {
+		// Insert nieuwe parameter_value
+		pvID = NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, is_confidential, valid_from, updated_at)
+			VALUES (?, '01a17db5-0aa5-73d6-9200-b03be26a9eac', ?, 'object', ?, 0, ?, ?)
+		`, pvID, groupID, paramValuesStr, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij invoegen parameterset waarde: %w", err)
+		}
+	} else if err == nil {
+		// Update bestaande parameter_value
+		_, err = tx.Exec(`
+			UPDATE parameter_values SET value = ?, updated_at = ? WHERE id = ?
+		`, paramValuesStr, nowISO, pvID)
+		if err != nil {
+			return "", fmt.Errorf("fout bij bijwerken parameterset waarde: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return groupID, nil
+}
+
+type MeetreeksOption struct {
+	Key            string `json:"key"`            // Unieke sleutel voor frontend selectie (bijv. "existing:<id>" of "new:<objectId>")
+	ObjectID       string `json:"objectId"`       // Doelobject ID
+	ObjectLabel    string `json:"objectLabel"`    // Label van doelobject
+	MeetreeksID    string `json:"meetreeksId,omitempty"` // Leeg bij "Nieuwe meetreeks"
+	MeetreeksLabel string `json:"meetreeksLabel,omitempty"`
+	DisplayLabel   string `json:"displayLabel"`   // "[object-label]: [meetreeks-label]" of "[object-label]: Nieuwe meetreeks"
+	IsNew          bool   `json:"isNew"`
+}
+
+// GetMeetreeksOptions haalt bestaande meetreeksen op én opties om nieuwe aan te maken per object
+func (a *App) GetMeetreeksOptions(searchTerm string) ([]MeetreeksOption, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	var options []MeetreeksOption
+
+	// 1. Zoek alle bestaande meetreeksen (objecten met objecttype 01a17dac-905c-7519-8859-e44d13630ac4)
+	queryExisting := `
+		SELECT 
+			m.id AS meetreeks_id,
+			m.label AS meetreeks_label,
+			o.id AS object_id,
+			o.label AS object_label
+		FROM objects m
+		JOIN relation_values rv_type ON rv_type.target_id = m.id AND rv_type.source_id = '01a17dac-905c-7519-8859-e44d13630ac4' AND rv_type.deleted_at IS NULL
+		JOIN relation_values rv_obj ON rv_obj.target_id = m.id AND rv_obj.relation_id = '01a014fc-6b2a-7447-b643-740bc09ad213' AND rv_obj.deleted_at IS NULL
+		JOIN objects o ON o.id = rv_obj.source_id AND o.deleted_at IS NULL
+		WHERE m.deleted_at IS NULL
+	`
+
+	if searchTerm != "" {
+		queryExisting += ` AND (LOWER(m.label) LIKE LOWER(?) OR LOWER(o.label) LIKE LOWER(?))`
+	}
+	queryExisting += ` ORDER BY o.label ASC, m.label ASC LIMIT 50`
+
+	var rows *sql.Rows
+	var err error
+	if searchTerm != "" {
+		st := "%" + searchTerm + "%"
+		rows, err = a.db.Query(queryExisting, st, st)
+	} else {
+		rows, err = a.db.Query(queryExisting)
+	}
+
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var mID, mLabel, oID, oLabel string
+			if err := rows.Scan(&mID, &mLabel, &oID, &oLabel); err == nil {
+				options = append(options, MeetreeksOption{
+					Key:            "existing:" + mID,
+					ObjectID:       oID,
+					ObjectLabel:    oLabel,
+					MeetreeksID:    mID,
+					MeetreeksLabel: mLabel,
+					DisplayLabel:   fmt.Sprintf("%s : %s", oLabel, mLabel),
+					IsNew:          false,
+				})
+			}
+		}
+	}
+
+	// 2. Voeg tevens objecten toe als optie om een "Nieuwe meetreeks" te starten
+	queryObjects := `
+		SELECT id, label 
+		FROM objects 
+		WHERE deleted_at IS NULL 
+	`
+	if searchTerm != "" {
+		queryObjects += ` AND LOWER(label) LIKE LOWER(?)`
+	}
+	queryObjects += ` ORDER BY label ASC LIMIT 50`
+
+	var objRows *sql.Rows
+	if searchTerm != "" {
+		st := "%" + searchTerm + "%"
+		objRows, err = a.db.Query(queryObjects, st)
+	} else {
+		objRows, err = a.db.Query(queryObjects)
+	}
+
+	if err == nil {
+		defer objRows.Close()
+		for objRows.Next() {
+			var oID, oLabel string
+			if err := objRows.Scan(&oID, &oLabel); err == nil {
+				options = append(options, MeetreeksOption{
+					Key:          "new:" + oID,
+					ObjectID:     oID,
+					ObjectLabel:  oLabel,
+					DisplayLabel: fmt.Sprintf("%s : Nieuwe meetreeks", oLabel),
+					IsNew:        true,
+				})
+			}
+		}
+	}
+
+	return options, nil
+}
+
+type CreateMeetreeksInput struct {
+	ObjectID         string `json:"objectId"`
+	MeetreeksLabel   string `json:"meetreeksLabel"`
+	ParameterGroupID string `json:"parameterGroupId"`
+}
+
+// CreateMeetreeks maakt een nieuw meetreeks object aan en legt alle benodigde relaties
+func (a *App) CreateMeetreeks(input CreateMeetreeksInput) (string, error) {
+	if a.db == nil {
+		return "", fmt.Errorf("database niet verbonden")
+	}
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+	tx, err := a.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	meetreeksID := NewUUIDv7()
+	label := input.MeetreeksLabel
+	if label == "" {
+		label = "Nieuwe Meetreeks"
+	}
+
+	// 1. Maak het meetreeks object aan
+	_, err = tx.Exec(`
+		INSERT INTO objects (id, label, is_confidential, valid_from, updated_at)
+		VALUES (?, ?, 0, ?, ?)
+	`, meetreeksID, label, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij aanmaken meetreeks object: %w", err)
+	}
+
+	// 2. Koppeling naar Object type: Meetreeks ID = 01a17dac-905c-7519-8859-e44d13630ac4 (als source, meetreeks als target)
+	typeRelUUID := NewUUIDv7()
+	_, err = tx.Exec(`
+		INSERT INTO relation_values (id, relation_id, source_id, target_id, valid_from, updated_at)
+		VALUES (?, '019fcdd3-721a-7512-b755-cddd67f43eb6', '01a17dac-905c-7519-8859-e44d13630ac4', ?, ?, ?)
+	`, typeRelUUID, meetreeksID, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij koppelen objecttype meetreeks: %w", err)
+	}
+
+	// 3. Koppeling naar het doelobject (source = objectID, target = meetreeksID, relation_id = 01a014fc-6b2a-7447-b643-740bc09ad213)
+	var existingCount int
+	_ = tx.QueryRow(`SELECT COUNT(*) FROM relation_values WHERE source_id = ? AND deleted_at IS NULL`, input.ObjectID).Scan(&existingCount)
+
+	objRelUUID := NewUUIDv7()
+	_, err = tx.Exec(`
+		INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+		VALUES (?, '01a014fc-6b2a-7447-b643-740bc09ad213', ?, ?, ?, 0, ?, ?)
+	`, objRelUUID, input.ObjectID, meetreeksID, existingCount+1, nowISO, nowISO)
+	if err != nil {
+		return "", fmt.Errorf("fout bij koppelen aan doelobject: %w", err)
+	}
+
+	// 4. Koppeling naar het parameter_groep object (source = meetreeksID, target = parameterGroupID, relation_id = 01a014fc-6b2a-7447-b643-740bc09ad213)
+	if input.ParameterGroupID != "" {
+		groupRelUUID := NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+			VALUES (?, '01a014fc-6b2a-7447-b643-740bc09ad213', ?, ?, 1, 0, ?, ?)
+		`, groupRelUUID, meetreeksID, input.ParameterGroupID, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij koppelen parametergroep aan meetreeks: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return meetreeksID, nil
+}
+type MeetwaardenRow struct {
+	ID        string            `json:"id"`        // ID van het parameter_values record
+	Timestamp string            `json:"timestamp"` // valid_from / meetmoment T
+	Values    map[string]string `json:"values"`    // map van [parameterId] = waarde
+}
+
+// GetMeetwaardenForMeetreeks haalt meetwaarden-sets op voor een meetreeks met optionele limiet
+func (a *App) GetMeetwaardenForMeetreeks(meetreeksID string, limit int) ([]MeetwaardenRow, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	query := `
+		SELECT id, valid_from, value
+		FROM parameter_values
+		WHERE target_id = ?
+		  AND valid_from = valid_to
+		  AND (deleted_at IS NULL OR deleted_at = '')
+		ORDER BY valid_from DESC
+	`
+	
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+
+	rows, err := a.db.Query(query, meetreeksID)
+	if err != nil {
+		return nil, fmt.Errorf("fout bij ophalen meetwaarden: %w", err)
+	}
+	defer rows.Close()
+
+	var result []MeetwaardenRow
+	for rows.Next() {
+		var id, validFrom, jsonStr string
+		if err := rows.Scan(&id, &validFrom, &jsonStr); err != nil {
+			continue
+		}
+
+		var valMap map[string]string
+		if err := json.Unmarshal([]byte(jsonStr), &valMap); err != nil {
+			valMap = make(map[string]string)
+		}
+
+		result = append(result, MeetwaardenRow{
+			ID:        id,
+			Timestamp: validFrom,
+			Values:    valMap,
+		})
+	}
+
+	return result, nil
+}
+type SaveMeetwaardenInput struct {
+	RecordID    string            `json:"recordId"`    // Leeg bij nieuwe rij, gevuld bij update
+	MeetreeksID string            `json:"meetreeksId"` // Doel meetreeks ID
+	Timestamp   string            `json:"timestamp"`   // Meetmoment T (RFC3339 / ISO string)
+	Values      map[string]string `json:"values"`      // Map van [parameterId] = waarde
+}
+
+// SaveOrUpdateMeetwaardenRow slaat een meetronde op of werkt deze bij
+func (a *App) SaveOrUpdateMeetwaardenRow(input SaveMeetwaardenInput) (string, error) {
+	if a.db == nil {
+		return "", fmt.Errorf("database niet verbonden")
+	}
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+	timestamp := input.Timestamp
+	if timestamp == "" {
+		timestamp = nowISO
+	}
+
+	// Converteer de values map naar JSON string
+	jsonBytes, err := json.Marshal(input.Values)
+	if err != nil {
+		return "", fmt.Errorf("fout bij serialiseren meetwaarden: %w", err)
+	}
+	jsonStr := string(jsonBytes)
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	recordID := input.RecordID
+
+	if recordID == "" {
+		// Nieuwe meetwaarde rij aanmaken
+		recordID = NewUUIDv7()
+		// Let op: valid_from EN valid_to krijgen dezelfde timestamp T!
+		_, err = tx.Exec(`
+			INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, valid_from, valid_to, is_confidential, updated_at)
+			VALUES (?, '01a17db5-0aa5-73d6-9200-b03be26a9eac', ?, 'object', ?, ?, ?, 0, ?)
+		`, recordID, input.MeetreeksID, jsonStr, timestamp, timestamp, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij invoegen meetwaarde: %w", err)
+		}
+	} else {
+		// Bestaande meetwaarde rij bijwerken (correctie, aanvulling of datum/tijd wijziging)
+		_, err = tx.Exec(`
+			UPDATE parameter_values 
+			SET value = ?, valid_from = ?, valid_to = ?, updated_at = ?
+			WHERE id = ?
+		`, jsonStr, timestamp, timestamp, nowISO, recordID)
+		if err != nil {
+			return "", fmt.Errorf("fout bij bijwerken meetwaarde: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return recordID, nil
+}
+// GetParametersForMeetreeks haalt de parameterset op die gekoppeld is aan een meetreeks
+func (a *App) GetParametersForMeetreeks(meetreeksID string) ([]ParameterDefinition, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	// Zoek het parameter_groep ID dat gekoppeld is aan de meetreeks via relatie 01a014fc-6b2a-7447-b643-740bc09ad213
+	var groupID string
+	err := a.db.QueryRow(`
+		SELECT target_id 
+		FROM relation_values 
+		WHERE source_id = ? 
+		  AND relation_id = '01a014fc-6b2a-7447-b643-740bc09ad213' 
+		  AND deleted_at IS NULL
+		LIMIT 1
+	`, meetreeksID).Scan(&groupID)
+
+	if err != nil {
+		return []ParameterDefinition{}, nil
+	}
+
+	// Hergebruik de bestaande functie om de parameters voor deze groep op te halen
+	return a.GetParametersForGroup(groupID)
 }

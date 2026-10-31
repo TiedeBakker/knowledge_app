@@ -76,6 +76,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class CreateMeetreeksInput {
+	    objectId: string;
+	    meetreeksLabel: string;
+	    parameterGroupId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateMeetreeksInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.objectId = source["objectId"];
+	        this.meetreeksLabel = source["meetreeksLabel"];
+	        this.parameterGroupId = source["parameterGroupId"];
+	    }
+	}
 	export class DbTemplateRecord {
 	    id: string;
 	    label: string;
@@ -463,6 +479,46 @@ export namespace main {
 		}
 	}
 	
+	export class MeetreeksOption {
+	    key: string;
+	    objectId: string;
+	    objectLabel: string;
+	    meetreeksId?: string;
+	    meetreeksLabel?: string;
+	    displayLabel: string;
+	    isNew: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MeetreeksOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.objectId = source["objectId"];
+	        this.objectLabel = source["objectLabel"];
+	        this.meetreeksId = source["meetreeksId"];
+	        this.meetreeksLabel = source["meetreeksLabel"];
+	        this.displayLabel = source["displayLabel"];
+	        this.isNew = source["isNew"];
+	    }
+	}
+	export class MeetwaardenRow {
+	    id: string;
+	    timestamp: string;
+	    values: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new MeetwaardenRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.timestamp = source["timestamp"];
+	        this.values = source["values"];
+	    }
+	}
 	
 	
 	export class ObjectSelectItem {
@@ -535,6 +591,20 @@ export namespace main {
 	        this.unit = source["unit"];
 	    }
 	}
+	export class ParameterGroupItem {
+	    id: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ParameterGroupItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	    }
+	}
 	
 	export class ParameterMaster {
 	    id: string;
@@ -593,6 +663,54 @@ export namespace main {
 	    }
 	}
 	
+	export class PresentatieDataPoint {
+	    timestamp: string;
+	    values: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new PresentatieDataPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = source["timestamp"];
+	        this.values = source["values"];
+	    }
+	}
+	export class PresentatieResult {
+	    title: string;
+	    codes: string[];
+	    points: PresentatieDataPoint[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PresentatieResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.codes = source["codes"];
+	        this.points = this.convertValues(source["points"], PresentatieDataPoint);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RelationMaster {
 	    id: string;
 	    label: string;
@@ -883,6 +1001,40 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.query = source["query"];
+	    }
+	}
+	export class SaveMeetwaardenInput {
+	    recordId: string;
+	    meetreeksId: string;
+	    timestamp: string;
+	    values: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveMeetwaardenInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.recordId = source["recordId"];
+	        this.meetreeksId = source["meetreeksId"];
+	        this.timestamp = source["timestamp"];
+	        this.values = source["values"];
+	    }
+	}
+	export class SaveParameterGroupInput {
+	    groupId: string;
+	    groupLabel: string;
+	    parameterIds: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveParameterGroupInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.groupLabel = source["groupLabel"];
+	        this.parameterIds = source["parameterIds"];
 	    }
 	}
 	export class SimpleObject {

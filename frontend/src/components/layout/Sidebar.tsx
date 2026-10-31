@@ -1,10 +1,8 @@
-// src/components/layout/Sidebar.tsx
+// src/components/layout/Sidebar.tsx 
 import React from 'react';
 import './Sidebar.css';
 
-// 1. Voeg 'base-module' toe aan ModuleType
-export type ModuleType = 'tree-viewer' | 'reporting' | 'media-import' | 'base-module'| 'toolbox';
-
+export type ModuleType = 'tree-viewer' | 'reporting' | 'media-import' | 'base-module' | 'meetwaarden' | 'toolbox';
 interface Props {
   activeModule: ModuleType;
   onSelectModule: (module: ModuleType) => void;
@@ -12,18 +10,18 @@ interface Props {
   onToggleCollapse: () => void;
 }
 
-export const Sidebar: React.FC<Props> = ({ 
-  activeModule, 
-  onSelectModule, 
-  isCollapsed, 
-  onToggleCollapse 
+export const Sidebar: React.FC<Props> = ({
+  activeModule,
+  onSelectModule,
+  isCollapsed,
+  onToggleCollapse
 }) => {
   return (
     <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         {!isCollapsed && <h2>Kennissysteem</h2>}
-        <button 
-          className="toggle-button" 
+        <button
+          className="toggle-button"
           onClick={onToggleCollapse}
           title={isCollapsed ? "Sidebar uitklappen" : "Sidebar inklappen"}
         >
@@ -37,7 +35,7 @@ export const Sidebar: React.FC<Props> = ({
           onClick={() => onSelectModule('tree-viewer')}
           title="Tree Viewer & Editor"
         >
-          <span className="icon">🌳</span> 
+          <span className="icon">🌳</span>
           {!isCollapsed && <span className="label">Tree Viewer & Editor</span>}
         </button>
 
@@ -47,8 +45,17 @@ export const Sidebar: React.FC<Props> = ({
           onClick={() => onSelectModule('base-module')}
           title="Basismodule"
         >
-          <span className="icon">⚡</span> 
+          <span className="icon">⚡</span>
           {!isCollapsed && <span className="label">Basismodule</span>}
+        </button>
+        {/* NIEUWE MEETWAARDEN MODULE */}
+        <button
+          className={`nav-button ${activeModule === 'meetwaarden' ? 'active' : ''}`}
+          onClick={() => onSelectModule('meetwaarden')}
+          title="Meetreeksen & Parametergroepen"
+        >
+          <span className="icon">📈</span>
+          {!isCollapsed && <span className="label">Meetwaarden</span>}
         </button>
 
         <button
@@ -56,16 +63,16 @@ export const Sidebar: React.FC<Props> = ({
           onClick={() => onSelectModule('reporting')}
           title="Rapportage"
         >
-          <span className="icon">📊</span> 
+          <span className="icon">📊</span>
           {!isCollapsed && <span className="label">Rapportage</span>}
         </button>
-        
+
         <button
           className={`nav-button ${activeModule === 'media-import' ? 'active' : ''}`}
           onClick={() => onSelectModule('media-import')}
           title="Media Import"
         >
-          <span className="icon">📷</span> 
+          <span className="icon">📷</span>
           {!isCollapsed && <span className="label">Media Import</span>}
         </button>
 
@@ -75,7 +82,7 @@ export const Sidebar: React.FC<Props> = ({
           onClick={() => onSelectModule('toolbox')}
           title="Toolbox"
         >
-          <span className="icon">🧰</span> 
+          <span className="icon">🧰</span>
           {!isCollapsed && <span className="label">Toolbox</span>}
         </button>
       </nav>

@@ -10,6 +10,10 @@ export function CreateComplexSubObject(arg1) {
   return window['go']['main']['App']['CreateComplexSubObject'](arg1);
 }
 
+export function CreateMeetreeks(arg1) {
+  return window['go']['main']['App']['CreateMeetreeks'](arg1);
+}
+
 export function CreateNewObject(arg1, arg2) {
   return window['go']['main']['App']['CreateNewObject'](arg1, arg2);
 }
@@ -86,6 +90,14 @@ export function GetLocalImageBase64(arg1) {
   return window['go']['main']['App']['GetLocalImageBase64'](arg1);
 }
 
+export function GetMeetreeksOptions(arg1) {
+  return window['go']['main']['App']['GetMeetreeksOptions'](arg1);
+}
+
+export function GetMeetwaardenForMeetreeks(arg1, arg2) {
+  return window['go']['main']['App']['GetMeetwaardenForMeetreeks'](arg1, arg2);
+}
+
 export function GetObjectById(arg1) {
   return window['go']['main']['App']['GetObjectById'](arg1);
 }
@@ -106,6 +118,18 @@ export function GetObjectsForSelector() {
   return window['go']['main']['App']['GetObjectsForSelector']();
 }
 
+export function GetParameterGroups() {
+  return window['go']['main']['App']['GetParameterGroups']();
+}
+
+export function GetParametersForGroup(arg1) {
+  return window['go']['main']['App']['GetParametersForGroup'](arg1);
+}
+
+export function GetParametersForMeetreeks(arg1) {
+  return window['go']['main']['App']['GetParametersForMeetreeks'](arg1);
+}
+
 export function GetParametersForTarget(arg1) {
   return window['go']['main']['App']['GetParametersForTarget'](arg1);
 }
@@ -116,6 +140,10 @@ export function GetParsedTemplateById(arg1) {
 
 export function GetPhotoFilePath(arg1) {
   return window['go']['main']['App']['GetPhotoFilePath'](arg1);
+}
+
+export function GetPresentatieData(arg1, arg2) {
+  return window['go']['main']['App']['GetPresentatieData'](arg1, arg2);
 }
 
 export function GetRelationsForTarget(arg1) {
@@ -160,6 +188,14 @@ export function SaveMasterRelation(arg1) {
 
 export function SaveMasterUnit(arg1) {
   return window['go']['main']['App']['SaveMasterUnit'](arg1);
+}
+
+export function SaveOrUpdateMeetwaardenRow(arg1) {
+  return window['go']['main']['App']['SaveOrUpdateMeetwaardenRow'](arg1);
+}
+
+export function SaveParameterGroup(arg1) {
+  return window['go']['main']['App']['SaveParameterGroup'](arg1);
 }
 
 export function SaveParameterValue(arg1) {

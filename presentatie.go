@@ -6,28 +6,39 @@ import (
 	"strings"
 )
 
-// PresentatieTemplateData definieert de structuur van onze simpele JSON template
-type PresentatieTemplateData struct {
-	Title    string   `json:"title"`
-	Codes    []string `json:"codes"`
-	DateFrom string   `json:"dateFrom,omitempty"`
-	DateTo   string   `json:"dateTo,omitempty"`
+// EChartsSeriesTemplate definieert een serie met een eigen labelnaam en parametercode
+type EChartsSeriesTemplate struct {
+	Name  string `json:"name"`
+	Code  string `json:"code"`
+	Type  string `json:"type"`
+	Stack string `json:"stack,omitempty"`
 }
 
-// PresentatieDataPoint vertegenwoordigt één meetmoment in de resultaattabel / grafiek
+// PresentatieTemplateData leest de flexibele JSON template in
+type PresentatieTemplateData struct {
+	Codes          []string                `json:"codes,omitempty"`
+	Series         []EChartsSeriesTemplate `json:"series,omitempty"`
+	DateFrom       string                  `json:"dateFrom,omitempty"`
+	DateTo         string                  `json:"dateTo,omitempty"`
+	ConnectNulls   bool                    `json:"connectNulls,omitempty"`
+	IgnoreZero     bool                    `json:"ignoreZeroValues,omitempty"`
+}
+
 type PresentatieDataPoint struct {
-	Timestamp string             `json:"timestamp"`
-	Values    map[string]float64 `json:"values"`
+	Timestamp string                 `json:"timestamp"`
+	Values    map[string]interface{} `json:"values"`
 }
 
 // PresentatieResult is het totale antwoord dat naar de React frontend gaat
 type PresentatieResult struct {
-	Title  string                 `json:"title"`
-	Codes  []string               `json:"codes"`
-	Points []PresentatieDataPoint `json:"points"`
+	Codes        []string               `json:"codes"`
+	Points       []PresentatieDataPoint `json:"points"`
+	ConnectNulls bool                   `json:"connectNulls"`
+	IgnoreZero   bool                   `json:"ignoreZeroValues"`
+	RawOption    string                 `json:"rawOption"` // De ruwe JSON-string voor de ECharts viewer
 }
 
-// GetPresentatieData verwerkt een template-JSON voor een specifieke meetreeks
+// GetPresentatieData verwerkt de template
 func (a *App) GetPresentatieData(meetreeksID string, templateJSON string) (*PresentatieResult, error) {
 	if a.db == nil {
 		return nil, fmt.Errorf("database niet verbonden")
@@ -35,24 +46,38 @@ func (a *App) GetPresentatieData(meetreeksID string, templateJSON string) (*Pres
 
 	// 1. Parse de JSON template
 	var tpl PresentatieTemplateData
-	err := json.Unmarshal([]byte(templateJSON), &tpl)
-	if err != nil {
+	if err := json.Unmarshal([]byte(templateJSON), &tpl); err != nil {
 		return nil, fmt.Errorf("ongeldige JSON template: %v", err)
 	}
 
+	// Haal codes op uit de series-definitie als die daar zijn opgegeven, anders uit de root 'codes' array
+	var targetCodes []string
+	if len(tpl.Series) > 0 {
+		for _, s := range tpl.Series {
+			if s.Code != "" {
+				targetCodes = append(targetCodes, strings.TrimSpace(s.Code))
+			}
+		}
+	}
+	if len(targetCodes) == 0 {
+		for _, c := range tpl.Codes {
+			targetCodes = append(targetCodes, strings.TrimSpace(c))
+		}
+	}
+	tpl.Codes = targetCodes
+
 	if len(tpl.Codes) == 0 {
-		return nil, fmt.Errorf("geen parameter codes opgegeven in template")
+		return nil, fmt.Errorf("geen parameter codes opgegeven in template of series")
 	}
 
-	// 2. Vraag de ID's op van de parameters die horen bij de opgegeven codes
+	// 2. Haal parameter ID's op
 	placeholders := make([]string, len(tpl.Codes))
 	args := make([]interface{}, len(tpl.Codes))
-
-	idToCodeMap := make(map[string]string) // parameter_id -> code
+	idToCodeMap := make(map[string]string)
 
 	for i, code := range tpl.Codes {
 		placeholders[i] = "?"
-		args[i] = strings.ToUpper(strings.TrimSpace(code))
+		args[i] = strings.ToUpper(code)
 	}
 
 	queryParamIDs := fmt.Sprintf(`
@@ -61,10 +86,6 @@ func (a *App) GetPresentatieData(meetreeksID string, templateJSON string) (*Pres
 		WHERE UPPER(code) IN (%s)
 		  AND deleted_at IS NULL
 	`, strings.Join(placeholders, ","))
-
-	// 🔍 DEBUG 1: Print de query en de codes waar we naar zoeken
-	fmt.Printf("[DEBUG GO] Gevraagde codes in template: %v\n", tpl.Codes)
-	fmt.Printf("[DEBUG GO] Query parameter IDs args: %v\n", args)
 
 	rowsParams, err := a.db.Query(queryParamIDs, args...)
 	if err != nil {
@@ -75,14 +96,11 @@ func (a *App) GetPresentatieData(meetreeksID string, templateJSON string) (*Pres
 	for rowsParams.Next() {
 		var pID, pCode string
 		if err := rowsParams.Scan(&pID, &pCode); err == nil {
-			upperCode := strings.ToUpper(pCode)
-			idToCodeMap[pID] = upperCode
-			// 🔍 DEBUG 2: Print welke parameter_id bij welke code hoort
-			fmt.Printf("[DEBUG GO] Gevonden parameter -> ID: %s | Code: %s\n", pID, upperCode)
+			idToCodeMap[pID] = strings.ToUpper(pCode)
 		}
 	}
-	fmt.Printf("[DEBUG GO] Totale idToCodeMap gevuld: %v\n", idToCodeMap)
-	// 3. Haal de records op uit parameter_values voor de gekoppelde meetreeks (target_id)
+
+	// 3. Haal meetwaarden op
 	queryMeetwaarden := `
 		SELECT id, valid_from, value 
 		FROM parameter_values 
@@ -110,38 +128,40 @@ func (a *App) GetPresentatieData(meetreeksID string, templateJSON string) (*Pres
 
 	var points []PresentatieDataPoint
 
-	// 4. Verwerk de JSON-payload in de 'value' kolom per rij
 	for rows.Next() {
 		var recID, timestamp, valueJSON string
 		if err := rows.Scan(&recID, &timestamp, &valueJSON); err != nil {
 			continue
 		}
 
-		// 🔍 DEBUG 3: Print de ruwe JSON string uit de database per rij
-		fmt.Printf("[DEBUG GO] Rij timestamp: %s | Ruwe valueJSON: %s\n", timestamp, valueJSON)
-
 		var rawValues map[string]interface{}
 		if err := json.Unmarshal([]byte(valueJSON), &rawValues); err != nil {
-			fmt.Printf("[DEBUG GO] Fout bij unmarshal JSON: %v\n", err)
 			continue
 		}
 
-		pointValues := make(map[string]float64)
-
+		pointValues := make(map[string]interface{})
 		for pID, rawVal := range rawValues {
 			if code, exists := idToCodeMap[pID]; exists {
-				var floatVal float64
-				switch v := rawVal.(type) {
-				case float64:
-					floatVal = v
-				case string:
-					fmt.Sscanf(v, "%f", &floatVal)
+				if rawVal == nil {
+					pointValues[code] = nil
+					continue
 				}
-				pointValues[code] = floatVal
-			} else {
-				// 🔍 DEBUG 4: Als een pID uit de database JSON niét in onze idToCodeMap staat
-				// (Dit kan verklaren waarom values {} leeg blijft als de UUID's niet matchen!)
-				// fmt.Printf("[DEBUG GO] Let op: pID %s komt niet voor in idToCodeMap\n", pID)
+
+				if strVal, ok := rawVal.(string); ok {
+					strVal = strings.TrimSpace(strVal)
+					if strVal == "" {
+						pointValues[code] = nil
+						continue
+					}
+					var floatVal float64
+					if _, err := fmt.Sscanf(strVal, "%f", &floatVal); err == nil {
+						pointValues[code] = floatVal
+					} else {
+						pointValues[code] = strVal
+					}
+				} else {
+					pointValues[code] = rawVal
+				}
 			}
 		}
 
@@ -152,8 +172,10 @@ func (a *App) GetPresentatieData(meetreeksID string, templateJSON string) (*Pres
 	}
 
 	return &PresentatieResult{
-		Title:  tpl.Title,
-		Codes:  tpl.Codes,
-		Points: points,
+		Codes:        tpl.Codes,
+		Points:       points,
+		ConnectNulls: tpl.ConnectNulls,
+		IgnoreZero:   tpl.IgnoreZero,
+		RawOption:    templateJSON, // Stuur de exacte ruwe JSON-string mee voor de frontend
 	}, nil
 }

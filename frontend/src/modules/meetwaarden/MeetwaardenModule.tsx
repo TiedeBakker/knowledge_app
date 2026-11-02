@@ -14,7 +14,8 @@ import { main } from '../../../../frontend/wailsjs/go/models';
 import { ParameterSearchSelect, ParameterOption } from '../../components/ParameterSearchSelect';
 import './MeetwaardenModule.css';
 import { MeetreeksSearchSelect, MeetreeksOptionItem } from './MeetreeksSearchSelect';
-import { RichTextEditorModal } from '../../../../frontend/src/components/RichTextEditorModal'; // Pas het pad aan indien nodig
+import { RichTextEditorModal } from '../../../../frontend/src/components/RichTextEditorModal';
+import { EChartsViewer } from '../../components/EChartsViewer';
 
 interface ParameterGroup {
     id: string;
@@ -24,7 +25,6 @@ interface ParameterGroup {
 export const MeetwaardenModule: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'metingen' | 'parametergroepen' | 'presentatie'>('parametergroepen');
 
-    // State voor parametergroepen beheer (Tab b)
     const [groups, setGroups] = useState<ParameterGroup[]>([]);
     const [selectedGroupID, setSelectedGroupID] = useState<string>('');
     const [groupLabel, setGroupLabel] = useState<string>('');
@@ -32,7 +32,7 @@ export const MeetwaardenModule: React.FC = () => {
     const [isNewGroup, setIsNewGroup] = useState<boolean>(false);
     const [loading, setLoading] = useState<boolean>(false);
     const [selectedMeetreeksOption, setSelectedMeetreeksOption] = useState<MeetreeksOptionItem | null>(null);
-    // Laad bij starten de parametergroepen
+
     useEffect(() => {
         loadGroups();
     }, []);
@@ -46,7 +46,6 @@ export const MeetwaardenModule: React.FC = () => {
         }
     };
 
-
     const [isCreatingNew, setIsCreatingNew] = useState<boolean>(false);
     const [targetObjectIdForNew, setTargetObjectIdForNew] = useState<string>('');
     const [targetObjectLabelForNew, setTargetObjectLabelForNew] = useState<string>('');
@@ -54,20 +53,43 @@ export const MeetwaardenModule: React.FC = () => {
     const [parameterGroups, setParameterGroups] = useState<any[]>([]);
     const [selectedParamGroupId, setSelectedParamGroupId] = useState<string>('');
 
-
-
-    // State voor Tab C (Presentatie & Analyse)
+    // State voor Tab C (Presentatie & Analyse) met ECharts Option structuur
     const [presentatieTemplateJson, setPresentatieTemplateJson] = useState<string>(
         JSON.stringify({
-            title: "Tijdreeks Analyse",
-            codes: ["PH", "EC"],
-            dateFrom: "",
-            dateTo: ""
+            "title": {
+                "text": "Tijdreeks Analyse",
+                "left": "center"
+            },
+            "tooltip": {
+                "trigger": "axis"
+            },
+            "legend": {
+                "bottom": 0
+            },
+            "grid": {
+                "top": "15%",
+                "left": "5%",
+                "right": "5%",
+                "bottom": "15%",
+                "containLabel": true
+            },
+            "xAxis": {
+                "type": "time"
+            },
+            "yAxis": {
+                "type": "value"
+            },
+            "codes": [
+                "AFG_EN_TOTAAL",
+                "AFG_EN_KOEL"
+            ],
+            "connectNulls": true,
+            "ignoreZeroValues": false
         }, null, 2)
     );
     const [presentatieResult, setPresentatieResult] = useState<any | null>(null);
     const [loadingPresentatie, setLoadingPresentatie] = useState<boolean>(false);
-    // Wanneer een groep geselecteerd wordt
+
     const handleSelectGroup = async (id: string) => {
         setSelectedGroupID(id);
         if (!id) {
@@ -99,10 +121,8 @@ export const MeetwaardenModule: React.FC = () => {
         }
     };
 
-    // Voeg parameter toe aan de lijst
     const handleAddParameter = (option: ParameterOption | null) => {
         if (!option) return;
-        // Check of hij er al in staat
         if (groupParameters.some(p => p.id === option.value)) return;
 
         const newParam: main.ParameterDefinition = {
@@ -116,14 +136,12 @@ export const MeetwaardenModule: React.FC = () => {
         setGroupParameters([...groupParameters, newParam]);
     };
 
-    // Verwijder parameter uit lijst
     const handleRemoveParameter = (index: number) => {
         const updated = [...groupParameters];
         updated.splice(index, 1);
         setGroupParameters(updated);
     };
 
-    // Verplaats parameter omhoog of omlaag
     const handleMove = (index: number, direction: 'up' | 'down') => {
         const targetIndex = direction === 'up' ? index - 1 : index + 1;
         if (targetIndex < 0 || targetIndex >= groupParameters.length) return;
@@ -135,7 +153,6 @@ export const MeetwaardenModule: React.FC = () => {
         setGroupParameters(updated);
     };
 
-    // Opslaan van de groep
     const handleSaveGroup = async () => {
         if (!groupLabel.trim()) {
             alert("Geef de parametergroep een naam.");
@@ -159,7 +176,6 @@ export const MeetwaardenModule: React.FC = () => {
         }
     };
 
-    // Extra states die je toevoegt aan de MeetwaardenModule component:
     const [activeMeetreeksID, setActiveMeetreeksID] = useState<string>('');
     const [activeMeetreeksLabel, setActiveMeetreeksLabel] = useState<string>('');
     const [meetwaardenParameters, setMeetwaardenParameters] = useState<main.ParameterDefinition[]>([]);
@@ -170,12 +186,8 @@ export const MeetwaardenModule: React.FC = () => {
     const loadMeetwaardenForSelectedMeetreeks = async (meetreeksId: string, limit: number) => {
         setLoadingMeetwaarden(true);
         try {
-            // 1. Haal de gekoppelde parameters op voor deze meetreeks
-            // (Dit kan via een dedicated Go-helperfunctie of direct via je bestaande logica)
-            const params = await GetParametersForMeetreeks(meetreeksId); // Of via de parametergroep
+            const params = await GetParametersForMeetreeks(meetreeksId);
             setMeetwaardenParameters(params || []);
-
-            // 2. Haal de historische meetwaarden-sets op
             const rows = await GetMeetwaardenForMeetreeks(meetreeksId, limit);
             setMeetwaardenRows(rows || []);
         } catch (err) {
@@ -185,11 +197,9 @@ export const MeetwaardenModule: React.FC = () => {
         }
     };
 
-    // State voor de RichTextEditor modal in het werkblad
     const [editorModalOpen, setEditorModalOpen] = useState<boolean>(false);
     const [currentEditingCell, setCurrentEditingCell] = useState<{ rIdx: number; paramId: string; value: string; label: string } | null>(null);
 
-    // Converteer UTC ISO string naar lokale YYYY-MM-DDTHH:mm voor de datetime-local input
     const formatIsoToLocalDateTime = (isoString: string) => {
         if (!isoString) return '';
         const date = new Date(isoString);
@@ -204,13 +214,11 @@ export const MeetwaardenModule: React.FC = () => {
         return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
 
-    // Converteer lokale datetime-local waarde terug naar UTC ISO string voor de database
     const formatLocalDateTimeToIso = (localValue: string) => {
         if (!localValue) return new Date().toISOString();
-        const date = new Date(localValue); // JavaScript interpreteert dit automatisch als lokale tijd
+        const date = new Date(localValue);
         return isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
     };
-
 
     return (
         <div className="meetwaarden-module-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '20px', boxSizing: 'border-box', backgroundColor: '#f9f9f9', overflowY: 'auto' }}>
@@ -272,7 +280,6 @@ export const MeetwaardenModule: React.FC = () => {
                 </button>
             </div>
 
-            {/* Tab Inhoud */}
             <div className="tab-content" style={{ flex: 1, backgroundColor: '#fff', padding: '20px', borderRadius: '6px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
 
                 {/* TAB B: PARAMETERGROEPEN */}
@@ -283,7 +290,6 @@ export const MeetwaardenModule: React.FC = () => {
                             <p style={{ color: '#666', fontSize: '13px' }}>Selecteer een bestaande parametergroep of maak een nieuwe aan om de parameterset in te richten.</p>
                         </div>
 
-                        {/* Selectie balk */}
                         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                             <select
                                 value={selectedGroupID}
@@ -298,8 +304,7 @@ export const MeetwaardenModule: React.FC = () => {
                             </select>
                         </div>
 
-                        {/* Bewerkingsformulier (zichtbaar als er een groep is geselecteerd of nieuw) */}
-                        {(selectedGroupID) && (
+                        {selectedGroupID && (
                             <div style={{ border: '1px solid #e0e0e0', padding: '20px', borderRadius: '6px', backgroundColor: '#fafafa', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                                     <label style={{ fontWeight: 'bold', fontSize: '13px' }}>Naam Parametergroep:</label>
@@ -313,8 +318,6 @@ export const MeetwaardenModule: React.FC = () => {
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
                                     <label style={{ fontWeight: 'bold', fontSize: '13px' }}>Parameters in deze groep (op volgorde):</label>
-
-                                    {/* Parameter toevoegen via zoekcomponent */}
                                     <div style={{ maxWidth: '400px', marginBottom: '10px' }}>
                                         <ParameterSearchSelect onSelect={handleAddParameter} />
                                     </div>
@@ -400,7 +403,6 @@ export const MeetwaardenModule: React.FC = () => {
                             <p style={{ color: '#666', fontSize: '13px' }}>Typ om te zoeken naar een bestaande meetreeks of selecteer een object om een nieuwe meetreeks te starten.</p>
                         </div>
 
-                        {/* Als we NIET bezig zijn met een nieuwe meetreeks aan te maken, toon de zoekcomponent */}
                         {!isCreatingNew ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 <label style={{ fontWeight: 'bold', fontSize: '13px' }}>Selecteer Meetreeks of Object:</label>
@@ -416,22 +418,18 @@ export const MeetwaardenModule: React.FC = () => {
                                         }
 
                                         if (!option.isNew && option.meetreeksId) {
-                                            // Bestaande meetreeks geselecteerd: Laad werkblad data!
                                             setActiveMeetreeksID(option.meetreeksId);
                                             setActiveMeetreeksLabel(option.label);
                                             await loadMeetwaardenForSelectedMeetreeks(option.meetreeksId, meetwaardenLimit);
                                         } else if (option.isNew) {
-                                            // Reset werkblad bij starten nieuwe meetreeks
                                             setActiveMeetreeksID('');
                                             setActiveMeetreeksLabel('');
                                             setMeetwaardenRows([]);
 
-                                            // Activeer de nieuwe meetreeks invoer-card
                                             setTargetObjectIdForNew(option.objectId);
                                             setTargetObjectLabelForNew(option.label.split(' : ')[0]);
                                             setNewMeetreeksLabel(`${option.label.split(' : ')[0]} - Meetreeks 1`);
 
-                                            // Laad direct de parametergroepen in
                                             try {
                                                 const groups = await GetParameterGroups();
                                                 setParameterGroups(groups || []);
@@ -448,7 +446,6 @@ export const MeetwaardenModule: React.FC = () => {
                                 />
                             </div>
                         ) : (
-                            /* NETJES GEFORMATTEERD FORMULIER VOOR NIEUWE MEETREEKS */
                             <div style={{ border: '1px solid #007acc', padding: '20px', borderRadius: '6px', backgroundColor: '#f0f8ff', maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                 <h4 style={{ margin: '0', color: '#007acc' }}>Nieuwe meetreeks aanmaken</h4>
                                 <p style={{ margin: 0, fontSize: '13px', color: '#555' }}>
@@ -523,7 +520,6 @@ export const MeetwaardenModule: React.FC = () => {
                             </div>
                         )}
 
-                        {/* WERKBLAD (DEEL B): ZODRA EEN MEETREEKS IS GESELECTEERD */}
                         {activeMeetreeksID && (
                             <div style={{ marginTop: '10px', borderTop: '2px solid #007acc', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -553,7 +549,7 @@ export const MeetwaardenModule: React.FC = () => {
 
                                         <button
                                             onClick={() => {
-                                                const nowISO = new Date().toISOString(); // Wordt door de helper straks netjes lokaal getoond
+                                                const nowISO = new Date().toISOString();
                                                 const newRow = {
                                                     id: '',
                                                     timestamp: nowISO,
@@ -575,7 +571,6 @@ export const MeetwaardenModule: React.FC = () => {
                                         <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: '#fff', color: '#333', fontSize: '13px' }}>
                                             <thead>
                                                 <tr style={{ backgroundColor: '#f1f1f1', textAlign: 'left' }}>
-                                                    {/* STICKY LINKSBOVEN: Meetmoment */}
                                                     <th style={{
                                                         position: 'sticky',
                                                         top: 0,
@@ -591,7 +586,6 @@ export const MeetwaardenModule: React.FC = () => {
                                                         Meetmoment (T)
                                                     </th>
 
-                                                    {/* PARAMETER KOPPEN */}
                                                     {meetwaardenParameters.map((p) => {
                                                         const isMarkdown = p.dataType === 'markdown';
                                                         return (
@@ -621,7 +615,6 @@ export const MeetwaardenModule: React.FC = () => {
                                                 ) : (
                                                     meetwaardenRows.map((row, rIdx) => (
                                                         <tr key={row.id || `new-${rIdx}`} style={{ borderBottom: '1px solid #eee' }}>
-                                                            {/* STICKY LINKER DATA-CEL: Meetmoment (met auto-save bij verlaten) */}
                                                             <td style={{
                                                                 position: 'sticky',
                                                                 left: 0,
@@ -639,7 +632,6 @@ export const MeetwaardenModule: React.FC = () => {
                                                                         setMeetwaardenRows(updated);
                                                                     }}
                                                                     onBlur={async () => {
-                                                                        // Automatisch opslaan op de achtergrond bij verlaten van het veld
                                                                         try {
                                                                             const savedId = await SaveOrUpdateMeetwaardenRow({
                                                                                 recordId: row.id || '',
@@ -660,7 +652,6 @@ export const MeetwaardenModule: React.FC = () => {
                                                                 />
                                                             </td>
 
-                                                            {/* DYNAMISCHE PARAMETER KOLOMMEN */}
                                                             {meetwaardenParameters.map((param) => {
                                                                 const isMarkdown = param.dataType === 'markdown';
                                                                 const cellValue = row.values[param.id] || '';
@@ -668,7 +659,6 @@ export const MeetwaardenModule: React.FC = () => {
                                                                 return (
                                                                     <td key={param.id} style={{ padding: '6px' }}>
                                                                         {isMarkdown ? (
-                                                                            /* MARKDOWN: Open de RichTextEditorModal */
                                                                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '5px' }}>
                                                                                 <span style={{ fontSize: '11px', color: '#666', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '150px' }}>
                                                                                     {cellValue ? (cellValue.replace(/<[^>]*>?/gm, '').substring(0, 20) + '...') : '[Leeg / tekst]'}
@@ -690,7 +680,6 @@ export const MeetwaardenModule: React.FC = () => {
                                                                                 </button>
                                                                             </div>
                                                                         ) : (
-                                                                            /* STANDAARD TEKSTVELD met auto-save (`onBlur`) */
                                                                             <input
                                                                                 type="text"
                                                                                 value={cellValue}
@@ -709,7 +698,6 @@ export const MeetwaardenModule: React.FC = () => {
                                                                                             timestamp: row.timestamp,
                                                                                             values: row.values
                                                                                         });
-                                                                                        // Als het een nieuwe rij was, slaan we het gegenereerde ID direct op in state
                                                                                         if (!row.id && savedId) {
                                                                                             const updated = [...meetwaardenRows];
                                                                                             updated[rIdx].id = savedId;
@@ -742,16 +730,17 @@ export const MeetwaardenModule: React.FC = () => {
                         )}
                     </div>
                 )}
+
+                {/* TAB C: PRESENTATIEVORMEN */}
                 {activeTab === 'presentatie' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                         <div>
                             <h3>Presentatievormen & Analyse</h3>
                             <p style={{ color: '#666', fontSize: '13px' }}>
-                                Koppel een JSON-template met parameter_codes aan de actieve meetreeks om direct tabellen en grafieken te genereren.
+                                Koppel een ECharts Option JSON-template aan de actieve meetreeks om direct tabellen en grafieken te genereren.
                             </p>
                         </div>
 
-                        {/* Configuratie Card */}
                         <div style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '6px', backgroundColor: '#fcfcfc', display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '800px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <label style={{ fontWeight: 'bold', fontSize: '13px' }}>Actieve Meetreeks ID:</label>
@@ -761,9 +750,9 @@ export const MeetwaardenModule: React.FC = () => {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                                <label style={{ fontWeight: 'bold', fontSize: '13px' }}>Template JSON Definitie:</label>
+                                <label style={{ fontWeight: 'bold', fontSize: '13px' }}>Template JSON Definitie (ECharts Option):</label>
                                 <textarea
-                                    rows={6}
+                                    rows={12}
                                     value={presentatieTemplateJson}
                                     onChange={(e) => setPresentatieTemplateJson(e.target.value)}
                                     style={{ fontFamily: 'monospace', fontSize: '12px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#fff', color: '#333' }}
@@ -792,88 +781,30 @@ export const MeetwaardenModule: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Resultaat Sectie (Tabel en Grafiek onder elkaar) */}
                         {loadingPresentatie && <p>Gegevens verwerken...</p>}
 
                         {presentatieResult && !loadingPresentatie && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '25px', marginTop: '10px' }}>
-
-                                {/* Titel */}
                                 <div style={{ borderBottom: '2px solid #007acc', paddingBottom: '8px' }}>
-                                    <h4 style={{ margin: 0, color: '#007acc' }}>{presentatieResult.title}</h4>
+                                    <h4 style={{ margin: 0, color: '#007acc' }}>
+                                        {presentatieResult.RawOption?.title?.text || "Tijdreeks Analyse"}
+                                    </h4>
                                     <span style={{ fontSize: '12px', color: '#666' }}>Geselecteerde codes: {presentatieResult.codes.join(', ')}</span>
                                 </div>
 
-                                {/* 1. GRAFIEK (Eenvoudige responsieve SVG lijngrafiek) */}
-                                <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '6px', backgroundColor: '#fff' }}>
-                                    <h5 style={{ margin: '0 0 10px 0', color: '#333' }}>Visuele Trend (Grafiek)</h5>
-                                    {(!presentatieResult.points || presentatieResult.points.length === 0) ? (
-                                        <p style={{ color: '#888', fontSize: '13px' }}>Geen datapunten binnen de selectie.</p>
-                                    ) : (
-                                        <div style={{ width: '100%', height: '200px', position: 'relative', borderLeft: '1px solid #999', borderBottom: '1px solid #999' }}>
-                                            {/* SVG Lijnweergave met vaste aspect ratio en pixel-coördinaten */}
-                                            <svg viewBox="0 0 800 200" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
-                                                {presentatieResult.codes.map((code: string, cIdx: number) => {
-                                                    const colors = ['#007acc', '#28a745', '#dc3545', '#ffc107', '#6f42c1'];
-                                                    const color = colors[cIdx % colors.length];
+                                {/* ECharts Viewer met flexibele rawOption */}
+                                <EChartsViewer
+                                    codes={presentatieResult.codes}
+                                    points={presentatieResult.points}
+                                    rawOption={presentatieResult.rawOption}  // <--- Aangepast van RawOption naar rawOption
+                                    connectNulls={presentatieResult.connectNulls}
+                                    ignoreZeroValues={presentatieResult.ignoreZero}
+                                    onExportSvg={(svgString) => {
+                                        console.log("ECharts SVG snapshot gegenereerd:", svgString.substring(0, 50) + "...");
+                                    }}
+                                />
 
-                                                    const points = presentatieResult.points;
-                                                    if (points.length < 2) return null;
-
-                                                    // Zoek min en max voor Y-as schaling
-                                                    let minVal = Infinity;
-                                                    let maxVal = -Infinity;
-                                                    points.forEach((pt: any) => {
-                                                        const vals = pt.values || pt.Values || {};
-                                                        const v = Number(vals[code]);
-                                                        if (!isNaN(v)) {
-                                                            if (v < minVal) minVal = v;
-                                                            if (v > maxVal) maxVal = v;
-                                                        }
-                                                    });
-
-                                                    if (minVal === Infinity) {
-                                                        minVal = 0;
-                                                        maxVal = 100;
-                                                    }
-                                                    if (minVal === maxVal) { minVal -= 1; maxVal += 1; }
-
-                                                    const range = maxVal - minVal;
-                                                    const svgWidth = 800;
-                                                    const svgHeight = 200;
-                                                    const padding = 20; // Ruimte rondom indien gewenst
-
-                                                    // Genereer coördinaten binnen een schaal van 800x200 pixels
-                                                    const coords = points.map((pt: any, idx: number) => {
-                                                        const x = (idx / (points.length - 1)) * svgWidth;
-                                                        const vals = pt.values || pt.Values || {};
-                                                        const v = Number(vals[code]);
-                                                        // Y-as loopt van onder (svgHeight) naar boven (0)
-                                                        const y = !isNaN(v) ? svgHeight - ((v - minVal) / range) * (svgHeight - padding) : svgHeight / 2;
-                                                        return `${x},${y}`;
-                                                    }).join(' ');
-
-                                                    return (
-                                                        <g key={code}>
-                                                            <polyline
-                                                                fill="none"
-                                                                stroke={color}
-                                                                strokeWidth="2"
-                                                                points={coords}
-                                                            />
-                                                            {/* Legenda label in vaste pixel-afmetingen */}
-                                                            <text x="10" y={20 + (cIdx * 16)} fill={color} fontSize="12" fontWeight="bold">
-                                                                ■ {code}
-                                                            </text>
-                                                        </g>
-                                                    );
-                                                })}
-                                            </svg>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* 2. TABEL */}
+                                {/* TABEL */}
                                 <div style={{ border: '1px solid #ddd', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#fff' }}>
                                     <h5 style={{ margin: '15px 15px 10px 15px', color: '#333' }}>Resultaten Tabel</h5>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -908,12 +839,11 @@ export const MeetwaardenModule: React.FC = () => {
                                         </tbody>
                                     </table>
                                 </div>
-
                             </div>
                         )}
                     </div>
                 )}
-                {/* Modal voor bewerken van Markdown / RichText waarden vanuit het werkblad */}
+
                 {editorModalOpen && currentEditingCell && (
                     <RichTextEditorModal
                         isOpen={editorModalOpen}

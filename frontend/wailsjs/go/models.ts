@@ -665,7 +665,7 @@ export namespace main {
 	
 	export class PresentatieDataPoint {
 	    timestamp: string;
-	    values: Record<string, number>;
+	    values: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new PresentatieDataPoint(source);
@@ -678,9 +678,11 @@ export namespace main {
 	    }
 	}
 	export class PresentatieResult {
-	    title: string;
 	    codes: string[];
 	    points: PresentatieDataPoint[];
+	    connectNulls: boolean;
+	    ignoreZeroValues: boolean;
+	    rawOption: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PresentatieResult(source);
@@ -688,9 +690,11 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.title = source["title"];
 	        this.codes = source["codes"];
 	        this.points = this.convertValues(source["points"], PresentatieDataPoint);
+	        this.connectNulls = source["connectNulls"];
+	        this.ignoreZeroValues = source["ignoreZeroValues"];
+	        this.rawOption = source["rawOption"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

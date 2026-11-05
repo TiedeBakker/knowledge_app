@@ -82,6 +82,10 @@ export function GetAllRelationsTypes() {
   return window['go']['main']['App']['GetAllRelationsTypes']();
 }
 
+export function GetDrawingObjects() {
+  return window['go']['main']['App']['GetDrawingObjects']();
+}
+
 export function GetGraphNetwork(arg1, arg2) {
   return window['go']['main']['App']['GetGraphNetwork'](arg1, arg2);
 }
@@ -176,6 +180,10 @@ export function ProcessReportImagesForExport(arg1, arg2) {
 
 export function ReindexOutgoingRelations(arg1) {
   return window['go']['main']['App']['ReindexOutgoingRelations'](arg1);
+}
+
+export function SaveDrawingInput(arg1) {
+  return window['go']['main']['App']['SaveDrawingInput'](arg1);
 }
 
 export function SaveMasterParameter(arg1) {

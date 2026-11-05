@@ -174,6 +174,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DrawingItem {
+	    id: string;
+	    label: string;
+	    svgContent?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DrawingItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.svgContent = source["svgContent"];
+	    }
+	}
 	export class NumberingConfig {
 	    type: string;
 	    separator: string;
@@ -1005,6 +1021,22 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.query = source["query"];
+	    }
+	}
+	export class SaveDrawingInput {
+	    drawingId: string;
+	    label: string;
+	    svgContent: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveDrawingInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.drawingId = source["drawingId"];
+	        this.label = source["label"];
+	        this.svgContent = source["svgContent"];
 	    }
 	}
 	export class SaveMeetwaardenInput {

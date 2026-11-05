@@ -42,6 +42,8 @@ export function GetAllObjectsSimple():Promise<Array<main.ObjectEntity>>;
 
 export function GetAllRelationsTypes():Promise<Array<main.RelationTypeEntity>>;
 
+export function GetDrawingObjects():Promise<Array<main.DrawingItem>>;
+
 export function GetGraphNetwork(arg1:boolean,arg2:number):Promise<main.GraphData>;
 
 export function GetLocalImageBase64(arg1:string):Promise<string>;
@@ -89,6 +91,8 @@ export function PreviewSQLQuery(arg1:main.SQLQueryRequest):Promise<main.SQLQuery
 export function ProcessReportImagesForExport(arg1:string,arg2:boolean):Promise<string>;
 
 export function ReindexOutgoingRelations(arg1:string):Promise<number>;
+
+export function SaveDrawingInput(arg1:main.SaveDrawingInput):Promise<string>;
 
 export function SaveMasterParameter(arg1:main.ParameterMaster):Promise<void>;
 

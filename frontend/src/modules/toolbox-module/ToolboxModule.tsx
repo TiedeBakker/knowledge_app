@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { 
-  PreviewSQLQuery, 
+import {
+  PreviewSQLQuery,
   ExecuteGenericInsertWithUUIDv7
 } from '../../../wailsjs/go/main/App';
 
-type ToolboxTab = 'sql-generator' | 'batch-tools';
+import { DrawingModal, DrawingModalData } from '../../../src/components/modals/DrawingModal';
+import { DrawingSearchSelect, DrawingOption } from '../../../src/components/DrawingSearchSelect';
+import { SaveDrawingInput } from '../../../wailsjs/go/main/App';
+
+type ToolboxTab = 'sql-generator' | 'batch-tools' | 'drawings';
 
 export const ToolboxModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ToolboxTab>('sql-generator');
@@ -29,6 +33,28 @@ export const ToolboxModule: React.FC = () => {
     return cleanSql;
   };
 
+  // Tekening modal states
+  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false);
+  const [selectedDrawing, setSelectedDrawing] = useState<DrawingOption | null>(null);
+  const [currentSvgContent, setCurrentSvgContent] = useState<string>('');
+  const [drawingLabel, setDrawingLabel] = useState<string>('');
+
+  const handleSaveDrawing = async (data: DrawingModalData) => {
+    try {
+      await SaveDrawingInput({
+        drawingId: selectedDrawing && !selectedDrawing.isNew ? selectedDrawing.value : '',
+        label: drawingLabel || selectedDrawing?.label || 'Naamloze tekening',
+        svgContent: data.svgContent,
+      });
+      setIsDrawingModalOpen(false);
+      setSelectedDrawing(null);
+      alert('Tekening succesvol opgeslagen in de database!');
+    } catch (err) {
+      console.error('Fout bij opslaan tekening:', err);
+      alert('Opslaan mislukt.');
+    }
+  };
+
   const handlePreview = async () => {
     if (!query.trim()) return;
     setIsLoading(true);
@@ -36,7 +62,7 @@ export const ToolboxModule: React.FC = () => {
     try {
       const previewSql = preparePreviewQuery(query);
       const res = await PreviewSQLQuery({ query: previewSql });
-      
+
       setPreview(res);
       if (res.error) {
         setStatusMessage({ text: `Preview fout: ${res.error}`, isError: true });
@@ -63,7 +89,7 @@ export const ToolboxModule: React.FC = () => {
     setStatusMessage(null);
     try {
       const res = await ExecuteGenericInsertWithUUIDv7(query);
-      
+
       if (res.success) {
         setStatusMessage({ text: res.message, isError: false });
         setPreview(null);
@@ -81,7 +107,7 @@ export const ToolboxModule: React.FC = () => {
     <div style={{ padding: '20px', height: '100%', display: 'flex', flexDirection: 'column', color: 'var(--text-color, inherit)' }}>
       <h2>KESY Toolbox</h2>
 
-      {/* Tab Navigatie - Geoptimaliseerd voor Dark & Light Mode */}
+      {/* Tab Navigatie */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color, #444)', marginBottom: '16px' }}>
         <button
           onClick={() => setActiveTab('sql-generator')}
@@ -93,7 +119,6 @@ export const ToolboxModule: React.FC = () => {
             borderBottom: activeTab === 'sql-generator' ? '2px solid #3182ce' : '2px solid transparent',
             fontWeight: activeTab === 'sql-generator' ? 'bold' : 'normal',
             cursor: 'pointer',
-            transition: 'color 0.2s, border-color 0.2s'
           }}
         >
           SQL Record Generator
@@ -108,46 +133,56 @@ export const ToolboxModule: React.FC = () => {
             borderBottom: activeTab === 'batch-tools' ? '2px solid #3182ce' : '2px solid transparent',
             fontWeight: activeTab === 'batch-tools' ? 'bold' : 'normal',
             cursor: 'pointer',
-            transition: 'color 0.2s, border-color 0.2s'
           }}
         >
           Overige Utilities
         </button>
+        <button
+          onClick={() => setActiveTab('drawings')}
+          style={{
+            padding: '8px 16px',
+            border: 'none',
+            background: 'none',
+            color: activeTab === 'drawings' ? '#3182ce' : 'var(--tab-text-color, #a0aec0)',
+            borderBottom: activeTab === 'drawings' ? '2px solid #3182ce' : '2px solid transparent',
+            fontWeight: activeTab === 'drawings' ? 'bold' : 'normal',
+            cursor: 'pointer',
+          }}
+        >
+          Specifieke objecten bewerken
+        </button>
       </div>
 
-      {/* Tab Inhoud */}
       {activeTab === 'sql-generator' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <label style={{ fontWeight: 'bold' }}>Voer SQL-query in:</label>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button 
-                onClick={() => handleInsertPlaceholder('{uuidv7}')} 
-                style={{ 
-                  padding: '4px 10px', 
-                  fontSize: '12px', 
+              <button
+                onClick={() => handleInsertPlaceholder('{uuidv7}')}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
                   cursor: 'pointer',
                   backgroundColor: 'var(--btn-bg, #2d3748)',
                   color: 'var(--btn-text, #e2e8f0)',
                   border: '1px solid var(--border-color, #4a5568)',
                   borderRadius: '4px'
                 }}
-                title="Voegt {uuidv7} token in (wordt per record gegenereerd door Go)"
               >
                 + Token &#123;uuidv7&#125;
               </button>
-              <button 
-                onClick={() => handleInsertPlaceholder('{now}')} 
-                style={{ 
-                  padding: '4px 10px', 
-                  fontSize: '12px', 
+              <button
+                onClick={() => handleInsertPlaceholder('{now}')}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '12px',
                   cursor: 'pointer',
                   backgroundColor: 'var(--btn-bg, #2d3748)',
                   color: 'var(--btn-text, #e2e8f0)',
                   border: '1px solid var(--border-color, #4a5568)',
                   borderRadius: '4px'
                 }}
-                title="Voegt {now} token in (wordt vervangen door ISO-8601 UTC datum/tijd)"
               >
                 + Token &#123;now&#125;
               </button>
@@ -172,8 +207,8 @@ export const ToolboxModule: React.FC = () => {
           />
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button 
-              onClick={handlePreview} 
+            <button
+              onClick={handlePreview}
               disabled={isLoading || !query.trim()}
               style={{
                 padding: '8px 16px',
@@ -188,15 +223,15 @@ export const ToolboxModule: React.FC = () => {
             </button>
 
             {preview && preview.count > 0 && !preview.error && (
-              <button 
-                onClick={handleExecute} 
+              <button
+                onClick={handleExecute}
                 disabled={isLoading}
-                style={{ 
-                  backgroundColor: '#276749', 
-                  color: '#ffffff', 
-                  border: 'none', 
-                  padding: '8px 16px', 
-                  borderRadius: '4px', 
+                style={{
+                  backgroundColor: '#276749',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
                   cursor: 'pointer',
                   fontWeight: 'bold'
                 }}
@@ -207,19 +242,14 @@ export const ToolboxModule: React.FC = () => {
           </div>
 
           {preview && !preview.error && (
-            <div style={{ 
-              backgroundColor: 'var(--card-bg, #2d3748)', 
+            <div style={{
+              backgroundColor: 'var(--card-bg, #2d3748)',
               color: 'var(--card-text, #e2e8f0)',
-              padding: '12px', 
-              border: '1px solid var(--border-color, #4a5568)', 
-              borderRadius: '4px' 
+              padding: '12px',
+              border: '1px solid var(--border-color, #4a5568)',
+              borderRadius: '4px'
             }}>
               <strong>Resultaat preview:</strong> {preview.count} record(s) gevonden om in te voegen.
-              {preview.columns.length > 0 && (
-                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
-                  Kolommen in SELECT: {preview.columns.join(', ')}
-                </div>
-              )}
             </div>
           )}
 
@@ -242,6 +272,60 @@ export const ToolboxModule: React.FC = () => {
           <p style={{ opacity: 0.7 }}>Ruimte voor toekomstige losse hulpprogramma's.</p>
         </div>
       )}
+
+      {activeTab === 'drawings' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '10px 0', maxWidth: '500px' }}>
+          <h3>Tekeningenbeheer</h3>
+          <p style={{ fontSize: '0.9rem', color: '#64748b' }}>
+            Selecteer een bestaande tekening om te bewerken of start een nieuwe tekening.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Selecteer Tekening</label>
+            <DrawingSearchSelect
+              onSelectDrawing={(option) => {
+                setSelectedDrawing(option);
+                if (option) {
+                  setCurrentSvgContent(option.svgContent || '');
+                  setDrawingLabel(option.isNew ? '' : option.label.replace(/^📐\s*/, ''));
+                } else {
+                  setCurrentSvgContent('');
+                  setDrawingLabel('');
+                }
+              }}
+            />
+          </div>
+
+          <div>
+            <button
+              onClick={() => setIsDrawingModalOpen(true)}
+              style={{
+                padding: '10px 18px',
+                backgroundColor: '#005fb8',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              📐 Tekening openen/maken
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tekening Modal */}
+      <DrawingModal
+        isOpen={isDrawingModalOpen}
+        initialSvgContent={currentSvgContent}
+        initialLabel={drawingLabel}
+        onClose={() => setIsDrawingModalOpen(false)}
+        onSave={handleSaveDrawing}
+      />
     </div>
   );
 };

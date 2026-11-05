@@ -1,3 +1,4 @@
+// frontend/src/utils/mediaHelper.ts
 import { GetPhotoFilePath } from '../../wailsjs/go/main/App';
 
 /**

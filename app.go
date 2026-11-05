@@ -704,36 +704,103 @@ func (a *App) SaveParameterValue(pv ParameterValueEntity) error {
 // Matcht zowel "/" als "\" (bijv: 2024/W29/ of 2024\W29\)
 var mediaPathRegex = regexp.MustCompile(`^\d{4}[/\\]W\d{1,2}[/\\]`)
 
+// func (a *App) OpenFile(filePath string) error {
+// 	cleanPath := strings.TrimSpace(filePath)
+
+// 	// 1. DArchieven omzetten
+// 	if strings.HasPrefix(cleanPath, "http://localhost/DArchieven") {
+// 		cleanPath = strings.Replace(cleanPath, "http://localhost/DArchieven", "../DArchieven", 1)
+// 	} else if mediaPathRegex.MatchString(cleanPath) {
+// 		// 2. Media paden (YYYY/Wxx/...) omzetten
+// 		cleanPath = "../media/" + cleanPath
+// 	}
+
+// 	// Zet eventuele slashes om naar de juiste OS path separators (\ voor Windows)
+// 	cleanPath = filepath.FromSlash(cleanPath)
+
+// 	var cmd *exec.Cmd
+
+// 	switch runtime.GOOS {
+// 	case "windows":
+// 		// cmd /c start vereist dubbele quotes voor de titel-parameter als het pad spaties/quotes bevat
+// 		cmd = exec.Command("cmd", "/c", "start", "", cleanPath)
+// 	case "darwin":
+// 		cmd = exec.Command("open", cleanPath)
+// 	default:
+// 		cmd = exec.Command("xdg-open", cleanPath)
+// 	}
+
+// 	err := cmd.Run()
+// 	if err != nil {
+// 		// Toon in de foutmelding het EXACTE pad dat Go heeft geprobeerd te openen
+// 		return fmt.Errorf("kan bestand niet openen op pad '%s': %v", cleanPath, err)
+// 	}
+// 	return nil
+// }
+
+
 func (a *App) OpenFile(filePath string) error {
 	cleanPath := strings.TrimSpace(filePath)
 
-	// 1. DArchieven omzetten
+	var candidatePaths []string
+
+	// Bepaal de mogelijke kandidaat-paden in volgorde van prioriteit:
+	// 1. Relatief pad (ideaal voor de portable setup / lokale mappenstructuur)
+	// 2. Absolute fallback op de T-schijf
 	if strings.HasPrefix(cleanPath, "http://localhost/DArchieven") {
-		cleanPath = strings.Replace(cleanPath, "http://localhost/DArchieven", "../DArchieven", 1)
+		subPath := strings.TrimPrefix(cleanPath, "http://localhost/DArchieven")
+		candidatePaths = append(candidatePaths, filepath.FromSlash("../DArchieven"+subPath))
+		candidatePaths = append(candidatePaths, filepath.FromSlash("T:/DArchieven"+subPath))
+	} else if strings.HasPrefix(cleanPath, "http://localhost/media-archive") {
+		subPath := strings.TrimPrefix(cleanPath, "http://localhost/media-archive")
+		candidatePaths = append(candidatePaths, filepath.FromSlash("../Media"+subPath))
+		candidatePaths = append(candidatePaths, filepath.FromSlash("T:/Media"+subPath))
 	} else if mediaPathRegex.MatchString(cleanPath) {
-		// 2. Media paden (YYYY/Wxx/...) omzetten
-		cleanPath = "../media/" + cleanPath
+		// Standaard media paden (YYYY/Wxx/...)
+		candidatePaths = append(candidatePaths, filepath.FromSlash("../media/"+cleanPath))
+		candidatePaths = append(candidatePaths, filepath.FromSlash("T:/Media/"+cleanPath))
+	} else {
+		// Als het een willekeurig ander pad is
+		candidatePaths = append(candidatePaths, filepath.FromSlash(cleanPath))
 	}
 
-	// Zet eventuele slashes om naar de juiste OS path separators (\ voor Windows)
-	cleanPath = filepath.FromSlash(cleanPath)
+	// Zoek het eerste kandidaat-pad dat daadwerkelijk fysiek bestaat op deze pc
+	var finalPath string
+	var lastErr error
+
+	for _, p := range candidatePaths {
+		if _, err := os.Stat(p); err == nil {
+			finalPath = p
+			break // Gevonden! We gebruiken dit pad.
+		} else {
+			lastErr = err
+		}
+	}
+
+	// Als geen van de paden via os.Stat kon worden geverifieerd (bijv. bij vreemde rechten of URL's),
+	// vallen we terug op de eerste optie (het relatieve pad) als default.
+	if finalPath == "" {
+		if len(candidatePaths) > 0 {
+			finalPath = candidatePaths[0]
+		} else {
+			finalPath = filepath.FromSlash(cleanPath)
+		}
+	}
 
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "windows":
-		// cmd /c start vereist dubbele quotes voor de titel-parameter als het pad spaties/quotes bevat
-		cmd = exec.Command("cmd", "/c", "start", "", cleanPath)
+		cmd = exec.Command("cmd", "/c", "start", "", finalPath)
 	case "darwin":
-		cmd = exec.Command("open", cleanPath)
+		cmd = exec.Command("open", finalPath)
 	default:
-		cmd = exec.Command("xdg-open", cleanPath)
+		cmd = exec.Command("xdg-open", finalPath)
 	}
 
 	err := cmd.Run()
 	if err != nil {
-		// Toon in de foutmelding het EXACTE pad dat Go heeft geprobeerd te openen
-		return fmt.Errorf("kan bestand niet openen op pad '%s': %v", cleanPath, err)
+		return fmt.Errorf("kan bestand niet openen (geprobeerde paden mislukt, laatst geprobeerd '%s'): %v", finalPath, lastErr)
 	}
 	return nil
 }
@@ -2045,4 +2112,151 @@ func (a *App) GetParametersForMeetreeks(meetreeksID string) ([]ParameterDefiniti
 
 	// Hergebruik de bestaande functie om de parameters voor deze groep op te halen
 	return a.GetParametersForGroup(groupID)
+}
+
+type SaveDrawingInput struct {
+	DrawingID   string `json:"drawingId"`   // Leeg bij nieuw, gevuld bij bijwerken
+	Label       string `json:"label"`       // Label van de tekening
+	SvgContent  string `json:"svgContent"`  // De SVG-string
+}
+
+// SaveDrawingObject slaat een SVG-tekening op als object met relatie en SVG parameterwaarde
+func (a *App) SaveDrawingInput(input SaveDrawingInput) (string, error) {
+	if a.db == nil {
+		return "", fmt.Errorf("database niet verbonden")
+	}
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+	drawingID := input.DrawingID
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	// Constanten uit jouw specificatie
+	svgTypeID := "01a1a8bf-5ad4-7160-b284-177c1310edd0"     // Object type: SVG-tekening
+	relationID := "019fc28b-e55e-7303-8178-efba6993a77b"    // zit in verzameling
+	svgParamID := "01a1a8c1-21a7-7562-8164-5e2c87b7a4a8"    // SVG Tekening parameter
+
+	if drawingID == "" {
+		// --- 1. NIEUW OBJECT MAKEN ---
+		drawingID = NewUUIDv7()
+		label := input.Label
+		if label == "" {
+			label = "Nieuwe tekening"
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO objects (id, label, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, 0, ?, ?)
+		`, drawingID, label, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij aanmaken tekening object: %w", err)
+		}
+
+		// --- 2. RELATIE LEGGEN MET OBJECT TYPE ---
+		var existingCount int
+		_ = tx.QueryRow(`
+			SELECT COUNT(*) FROM relation_values 
+			WHERE source_id = ? AND relation_id = ? AND deleted_at IS NULL
+		`, svgTypeID, relationID).Scan(&existingCount)
+
+		relUUID := NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+		`, relUUID, relationID, svgTypeID, drawingID, existingCount+1, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij leggen relatie naar SVG-tekening type: %w", err)
+		}
+
+	} else {
+		// --- 1B. BESTAAND OBJECT BIJWERKEN ---
+		if input.Label != "" {
+			_, err = tx.Exec(`UPDATE objects SET label = ?, updated_at = ? WHERE id = ?`, input.Label, nowISO, drawingID)
+			if err != nil {
+				return "", fmt.Errorf("fout bij bijwerken tekening label: %w", err)
+			}
+		}
+	}
+
+	// --- 3. PARAMETER_VALUE VOOR SVG INVOEGEN OF UPDATEN ---
+	var pvID string
+	err = tx.QueryRow(`
+		SELECT id FROM parameter_values 
+		WHERE target_id = ? AND parameter_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+		LIMIT 1
+	`, drawingID, svgParamID).Scan(&pvID)
+
+	if err == sql.ErrNoRows {
+		pvID = NewUUIDv7()
+		_, err = tx.Exec(`
+			INSERT INTO parameter_values (id, parameter_id, target_id, target_type, value, is_confidential, valid_from, updated_at)
+			VALUES (?, ?, ?, 'object', ?, 0, ?, ?)
+		`, pvID, svgParamID, drawingID, input.SvgContent, nowISO, nowISO)
+		if err != nil {
+			return "", fmt.Errorf("fout bij invoegen SVG parameterwaarde: %w", err)
+		}
+	} else if err == nil {
+		_, err = tx.Exec(`
+			UPDATE parameter_values SET value = ?, updated_at = ? WHERE id = ?
+		`, input.SvgContent, nowISO, pvID)
+		if err != nil {
+			return "", fmt.Errorf("fout bij bijwerken SVG parameterwaarde: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return drawingID, nil
+}
+
+type DrawingItem struct {
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	SvgContent string `json:"svgContent,omitempty"`
+}
+
+// GetDrawingObjects haalt alle tekening-objecten op
+func (a *App) GetDrawingObjects() ([]DrawingItem, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database niet verbonden")
+	}
+
+	svgTypeID := "01a1a8bf-5ad4-7160-b284-177c1310edd0"
+	relationID := "019fc28b-e55e-7303-8178-efba6993a77b"
+	svgParamID := "01a1a8c1-21a7-7562-8164-5e2c87b7a4a8"
+
+	query := `
+		SELECT o.id, o.label, COALESCE(pv.value, '') AS svg_content
+		FROM relation_values rv
+		JOIN objects o ON rv.target_id = o.id
+		LEFT JOIN parameter_values pv ON pv.target_id = o.id AND pv.parameter_id = ? AND (pv.deleted_at IS NULL OR pv.deleted_at = '')
+		WHERE rv.source_id = ? 
+		  AND rv.relation_id = ? 
+		  AND rv.deleted_at IS NULL 
+		  AND o.deleted_at IS NULL
+		ORDER BY o.label ASC
+	`
+
+	rows, err := a.db.Query(query, svgParamID, svgTypeID, relationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var drawings []DrawingItem
+	for rows.Next() {
+		var d DrawingItem
+		if err := rows.Scan(&d.ID, &d.Label, &d.SvgContent); err != nil {
+			continue
+		}
+		// Gecorrigeerd naar de ingebouwde Go append() functie:
+		drawings = append(drawings, d)
+	}
+	return drawings, nil
 }

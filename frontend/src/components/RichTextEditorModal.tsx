@@ -1,3 +1,4 @@
+//frontend/src/components/RichTextEditorModal.tsx
 import React, { useEffect, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';

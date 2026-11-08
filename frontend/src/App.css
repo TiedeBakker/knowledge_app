@@ -284,3 +284,20 @@ figure {
     background: transparent !important;
   }
 }
+/* Forceer alle tekeningen en hun SVG's om altijd netjes binnen hun container te schalen */
+figure.drawing-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+figure.drawing-wrapper svg {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100% !important;
+  display: block !important;
+}
+
+p.clear-float {
+  clear: both !important;
+  margin-top: 1rem !important;
+}

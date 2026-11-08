@@ -1,6 +1,7 @@
 //frontend/src/components/RichTextEditorModal.tsx
 import React, { useEffect, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import Paragraph from '@tiptap/extension-paragraph';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Highlight from '@tiptap/extension-highlight';
@@ -14,13 +15,224 @@ import {
   Maximize2, Minimize2, Code, Link as LinkIcon, Unlink
 } from 'lucide-react';
 
-// Importeer de NodeSearchSelector (controleer eventueel het relatieve pad)
+// Importeer de NodeSearchSelector
 import { NodeSearchSelector } from '../modules/base-module/components/NodeSearchSelector';
 import { SearchableObject } from '../modules/base-module/utils/searchUtils';
 import { ImageModal, ImageModalData } from './modals/ImageModal';
 import { resolveMediaHtml } from '../utils/mediaHelper';
 import { GetPhotoFilePath } from '../../wailsjs/go/main/App';
+import { DrawingModal, DrawingModalData } from './modals/DrawingModal';
+import { Node } from '@tiptap/core';
+import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 
+// 1. De React component die de tekening in de editor toont (inclusief achtergrond en kader)
+const DrawingNodeView = ({ node }: { node: any }) => {
+  const svgContent = node.attrs['svg-content'] || '';
+  const width = node.attrs['data-width'] || '100%';
+  const layout = node.attrs['data-layout'] || 'center';
+  const textFlow = node.attrs['data-text-flow'] || 'no-wrap';
+
+  const bgColor = node.attrs['data-bg-color'] || '#ffffff';
+  const hasBorder = node.attrs['data-has-border'] === 'true';
+  const borderColor = node.attrs['data-border-color'] || '#cbd5e1';
+  const borderWidth = node.attrs['data-border-width'] || '1px';
+  const caption = node.attrs['data-caption'] || '';
+
+  // Bepaal wrapper styling (float / marge / breedte)
+  let wrapperStyle: React.CSSProperties = {
+    width: width,
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+  };
+
+  if (textFlow === 'wrap' && width !== '100%') {
+    if (layout === 'inline-right') {
+      wrapperStyle = { ...wrapperStyle, float: 'right', margin: '0.25rem 0 0.75rem 1.5rem', clear: 'none', display: 'block' };
+    } else if (layout === 'inline-left') {
+      wrapperStyle = { ...wrapperStyle, float: 'left', margin: '0.25rem 1.5rem 0.75rem 0', clear: 'none', display: 'block' };
+    } else {
+      wrapperStyle = { ...wrapperStyle, float: 'none', margin: '1.5rem auto', clear: 'both', display: 'block', textAlign: 'center' };
+    }
+  } else {
+    wrapperStyle = { ...wrapperStyle, float: 'none', margin: '1.5rem auto', clear: 'both', display: 'block', textAlign: 'center' };
+  }
+
+  // Container styling voor achtergrond en kader
+  let containerStyle: React.CSSProperties = {
+    width: '100%',
+    maxWidth: '100%',
+    display: 'block',
+    backgroundColor: bgColor,
+  };
+
+  if (hasBorder) {
+    containerStyle = {
+      ...containerStyle,
+      border: `${borderWidth} solid ${borderColor}`,
+      borderRadius: '4px',
+      overflow: 'hidden',
+    };
+  }
+
+  return (
+    <NodeViewWrapper className="drawing-wrapper" style={wrapperStyle}>
+      <div
+        className="svg-container"
+        dangerouslySetInnerHTML={{ __html: svgContent }}
+        style={containerStyle}
+      />
+      {caption && (
+        <figcaption style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', textAlign: 'center' }}>
+          {caption}
+        </figcaption>
+      )}
+    </NodeViewWrapper>
+  );
+};
+
+// 2. De Tiptap Node Extensie (inclusief verwerking van achtergrond en kader in HTML/PDF)
+const CustomDrawing = Node.create({
+  name: 'drawing',
+  group: 'block',
+  atom: true,
+
+  addAttributes() {
+    return {
+      'svg-content': {
+        default: '',
+        parseHTML: (element) => {
+          const container = element.querySelector('.svg-container');
+          const svg = element.querySelector('svg');
+          return container?.innerHTML || (svg ? svg.outerHTML : '');
+        },
+        renderHTML: (attributes) => ({
+          'svg-content': attributes['svg-content'],
+        }),
+      },
+      'data-width': {
+        default: '100%',
+        parseHTML: (element) => element.getAttribute('data-width') || '100%',
+        renderHTML: (attributes) => ({ 'data-width': attributes['data-width'] || '100%' }),
+      },
+      'data-layout': {
+        default: 'center',
+        parseHTML: (element) => element.getAttribute('data-layout') || 'center',
+        renderHTML: (attributes) => ({ 'data-layout': attributes['data-layout'] || 'center' }),
+      },
+      'data-text-flow': {
+        default: 'no-wrap',
+        parseHTML: (element) => element.getAttribute('data-text-flow') || 'no-wrap',
+        renderHTML: (attributes) => ({ 'data-text-flow': attributes['data-text-flow'] || 'no-wrap' }),
+      },
+      'data-caption': {
+        default: '',
+        parseHTML: (element) => element.querySelector('figcaption')?.textContent || element.getAttribute('data-caption') || '',
+        renderHTML: (attributes) => (attributes['data-caption'] ? { 'data-caption': attributes['data-caption'] } : {}),
+      },
+      'data-bg-color': {
+        default: '#ffffff',
+        parseHTML: (element) => element.getAttribute('data-bg-color') || '#ffffff',
+        renderHTML: (attributes) => ({ 'data-bg-color': attributes['data-bg-color'] || '#ffffff' }),
+      },
+      'data-has-border': {
+        default: 'false',
+        parseHTML: (element) => element.getAttribute('data-has-border') || 'false',
+        renderHTML: (attributes) => ({ 'data-has-border': attributes['data-has-border'] || 'false' }),
+      },
+      'data-border-color': {
+        default: '#cbd5e1',
+        parseHTML: (element) => element.getAttribute('data-border-color') || '#cbd5e1',
+        renderHTML: (attributes) => ({ 'data-border-color': attributes['data-border-color'] || '#cbd5e1' }),
+      },
+      'data-border-width': {
+        default: '1px',
+        parseHTML: (element) => element.getAttribute('data-border-width') || '1px',
+        renderHTML: (attributes) => ({ 'data-border-width': attributes['data-border-width'] || '1px' }),
+      },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'figure.drawing-wrapper' }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    const svgContent = HTMLAttributes['svg-content'] || '';
+    const width = HTMLAttributes['data-width'] || '100%';
+    const layout = HTMLAttributes['data-layout'] || 'center';
+    const textFlow = HTMLAttributes['data-text-flow'] || 'no-wrap';
+    const caption = HTMLAttributes['data-caption'] || '';
+
+    const bgColor = HTMLAttributes['data-bg-color'] || '#ffffff';
+    const hasBorder = HTMLAttributes['data-has-border'] === 'true';
+    const borderColor = HTMLAttributes['data-border-color'] || '#cbd5e1';
+    const borderWidth = HTMLAttributes['data-border-width'] || '1px';
+
+    const figure = document.createElement('figure');
+    figure.className = 'drawing-wrapper';
+    figure.setAttribute('data-width', width);
+    figure.setAttribute('data-layout', layout);
+    figure.setAttribute('data-text-flow', textFlow);
+    if (caption) figure.setAttribute('data-caption', caption);
+
+    // Bewaar de attributen ook in de HTML zodat parseHTML ze later weer kan uitlezen
+    figure.setAttribute('data-bg-color', bgColor);
+    figure.setAttribute('data-has-border', String(hasBorder));
+    figure.setAttribute('data-border-color', borderColor);
+    figure.setAttribute('data-border-width', borderWidth);
+
+    // Dynamische styling op basis van layout en tekstomloop
+    let cssText = `width: ${width} !important; max-width: 100% !important; box-sizing: border-box !important;`;
+
+    if (textFlow === 'wrap' && width !== '100%') {
+      if (layout === 'inline-right') {
+        cssText += ' float: right !important; margin: 0.25rem 0 0.75rem 1.5rem !important; clear: none !important; display: block !important;';
+      } else if (layout === 'inline-left') {
+        cssText += ' float: left !important; margin: 0.25rem 1.5rem 0.75rem 0 !important; clear: none !important; display: block !important;';
+      } else {
+        cssText += ' display: block !important; margin: 1.5rem auto !important; text-align: center !important;';
+      }
+    } else {
+      cssText += ' display: block !important; float: none !important; clear: both !important; margin: 1.5rem auto !important; text-align: center !important;';
+    }
+
+    figure.setAttribute('style', cssText);
+
+    const div = document.createElement('div');
+    div.className = 'svg-container';
+
+    // Achtergrondkleur en kader toepassen op de container
+    let containerStyle = `width: 100% !important; max-width: 100% !important; display: block !important; background-color: ${bgColor} !important;`;
+    if (hasBorder) {
+      containerStyle += ` border: ${borderWidth} solid ${borderColor} !important; border-radius: 4px; overflow: hidden;`;
+    }
+    div.setAttribute('style', containerStyle);
+    div.innerHTML = svgContent;
+
+    const svgEl = div.querySelector('svg');
+    if (svgEl) {
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+      svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      svgEl.setAttribute('style', 'width: 100% !important; height: auto !important; display: block !important; max-width: 100% !important;');
+    }
+
+    figure.appendChild(div);
+
+    if (caption) {
+      const figcaption = document.createElement('figcaption');
+      figcaption.setAttribute('style', 'font-size: 0.85rem; color: #64748b; margin-top: 4px; text-align: center;');
+      figcaption.textContent = caption;
+      figure.appendChild(figcaption);
+    }
+
+    return figure;
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(DrawingNodeView);
+  },
+});
 // Custom Tiptap Link extension met 'data-object-id' ondersteuning
 const CustomLink = Link.extend({
   addAttributes() {
@@ -178,6 +390,22 @@ const CustomImage = Image.extend({
   },
 });
 
+const CustomParagraph = Paragraph.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      class: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('class'),
+        renderHTML: (attributes) => {
+          if (!attributes.class) return {};
+          return { class: attributes.class };
+        },
+      },
+    };
+  },
+});
+
 interface RichTextEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -200,17 +428,62 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [editingImageData, setEditingImageData] = useState<ImageModalData | null>(null);
 
+  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false);
+  const [currentDrawingSvg, setCurrentDrawingSvg] = useState<string>('');
+  const [isEditingNode, setIsEditingNode] = useState(false);
+
   const handleOpenAddImage = () => {
     setEditingImageData(null);
     setIsImageModalOpen(true);
   };
+  const [editingDrawingData, setEditingDrawingData] = useState<{
+    width: string;
+    layout: 'center' | 'inline-left' | 'inline-right';
+    textFlow: 'no-wrap' | 'wrap';
+    caption: string;
+    bgColor: string;
+    hasBorder: boolean;
+    borderColor: string;
+    borderWidth: string;
+  } | null>(null);
 
-  const handleEditorDoubleClick = (event: React.MouseEvent) => {
+const handleEditorDoubleClick = (event: React.MouseEvent) => {
     if (!editor) return;
 
     const target = event.target as HTMLElement;
-    const element = target.closest('figure, img') as HTMLElement;
+    const drawingWrapper = target.closest('.react-renderer.node-drawing, figure.drawing-wrapper') as HTMLElement;
 
+    if (drawingWrapper) {
+      const svgElem = drawingWrapper.querySelector('svg');
+      const svgContent = svgElem ? svgElem.outerHTML : currentDrawingSvg;
+
+      // Lees de actuele attributen uit de opgeslagen figuur/wrapper in Tiptap
+      const width = drawingWrapper.getAttribute('data-width') || '100%';
+      const layout = (drawingWrapper.getAttribute('data-layout') as any) || 'center';
+      const textFlow = (drawingWrapper.getAttribute('data-text-flow') as any) || 'no-wrap';
+      const caption = drawingWrapper.getAttribute('data-caption') || '';
+      const bgColor = drawingWrapper.getAttribute('data-bg-color') || '#ffffff';
+      const hasBorder = drawingWrapper.getAttribute('data-has-border') === 'true';
+      const borderColor = drawingWrapper.getAttribute('data-border-color') || '#cbd5e1';
+      const borderWidth = drawingWrapper.getAttribute('data-border-width') || '1px';
+
+      setCurrentDrawingSvg(svgContent);
+      setEditingDrawingData({
+        width, 
+        layout, 
+        textFlow, 
+        caption, 
+        bgColor, 
+        hasBorder, 
+        borderColor, 
+        borderWidth
+      });
+      setIsEditingNode(true);
+      setIsDrawingModalOpen(true);
+      return;
+    }
+
+    const element = target.closest('figure, img') as HTMLElement;
     if (element) {
       const imgElement = element.tagName === 'FIGURE' ? element.querySelector('img') : element;
 
@@ -224,7 +497,6 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
       setIsImageModalOpen(true);
     }
   };
-
   const cleanHtmlForSave = (htmlContent: string): string => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -284,17 +556,20 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
     setIsImageModalOpen(false);
   };
 
-  const editor = useEditor({
+const editor = useEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2] },
         codeBlock: false,
+        paragraph: false, // Schakel de standaard paragraaf uit zodat wij onze CustomParagraph kunnen gebruiken
       }),
+      CustomParagraph, // Voeg de aangepaste paragraaf toe die classes toestaat
       CustomImage.configure({
         inline: false,
         allowBase64: true,
       }),
+      CustomDrawing,
       CustomLink.configure({
         openOnClick: false,
         HTMLAttributes: {
@@ -522,6 +797,43 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
             >
               🖼️ Foto invoegen
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                const defaultSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="350" viewBox="0 0 500 350"><rect width="100%" height="100%" fill="#e2e8f0"/><rect x="50" y="50" width="150" height="100" fill="#3b82f6" rx="4"/></svg>`;
+                setCurrentDrawingSvg(defaultSvg);
+                setIsEditingNode(false);
+                setIsDrawingModalOpen(true);
+              }}
+              title="Tekening invoegen"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
+                background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '4px',
+                color: '#0284c7', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500
+              }}
+            >
+              📐 Tekening invoegen
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (editor) {
+                  editor
+                    .chain()
+                    .focus()
+                    .insertContent('<p class="clear-float"><br/></p>')
+                    .run();
+                }
+              }}
+              title="Start een nieuwe alinea onder een zwevende afbeelding/tekening (opheffen float)"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '4px',
+                color: '#334155', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500
+              }}
+            >
+              ¶ Nieuwe alinea
+            </button>
           </div>
         )}
 
@@ -574,6 +886,58 @@ export const RichTextEditorModal: React.FC<RichTextEditorModalProps> = ({
           onSave={handleSaveImageModal}
         />
 
+        {/* Tekening Bewerk Modal (In-Memory Inline SVG Flow) */}
+        <DrawingModal
+          isOpen={isDrawingModalOpen}
+          initialSvgContent={currentDrawingSvg}
+          initialLabel=""
+          initialWidth={editingDrawingData?.width || '100%'}
+          initialLayout={editingDrawingData?.layout || 'center'}
+          initialTextFlow={editingDrawingData?.textFlow || 'no-wrap'}
+          initialCaption={editingDrawingData?.caption || ''}
+          initialBgColor={editingDrawingData?.bgColor || '#ffffff'}
+          initialHasBorder={editingDrawingData?.hasBorder || false}
+          initialBorderColor={editingDrawingData?.borderColor || '#cbd5e1'}
+          initialBorderWidth={editingDrawingData?.borderWidth || '1px'}
+          availableObjects={availableObjects}
+          onClose={() => {
+            setIsDrawingModalOpen(false);
+            setIsEditingNode(false);
+            setEditingDrawingData(null);
+          }}
+          onSave={(data: DrawingModalData) => {
+            setIsDrawingModalOpen(false);
+
+            setTimeout(() => {
+              if (editor && data.svgContent) {
+                editor.chain().focus();
+
+                const drawingAttrs = {
+                  'svg-content': data.svgContent,
+                  'data-width': data.width,
+                  'data-layout': data.layout,
+                  'data-text-flow': data.textFlow,
+                  'data-caption': data.caption,
+                  'data-bg-color': data.backgroundColor,
+                  'data-has-border': String(data.hasBorder),
+                  'data-border-color': data.borderColor,
+                  'data-border-width': data.borderWidth,
+                };
+
+                if (isEditingNode) {
+                  editor.commands.updateAttributes('drawing', drawingAttrs);
+                } else {
+                  editor.commands.insertContent({
+                    type: 'drawing',
+                    attrs: drawingAttrs,
+                  });
+                }
+              }
+              setIsEditingNode(false);
+              setEditingDrawingData(null);
+            }, 50);
+          }}
+        />
       </div>
     </div>
   );

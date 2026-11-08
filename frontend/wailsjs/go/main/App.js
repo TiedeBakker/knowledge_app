@@ -170,6 +170,10 @@ export function OpenFile(arg1) {
   return window['go']['main']['App']['OpenFile'](arg1);
 }
 
+export function OpenSvgInInkscape(arg1) {
+  return window['go']['main']['App']['OpenSvgInInkscape'](arg1);
+}
+
 export function PreviewSQLQuery(arg1) {
   return window['go']['main']['App']['PreviewSQLQuery'](arg1);
 }

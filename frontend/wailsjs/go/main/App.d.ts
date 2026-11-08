@@ -86,6 +86,8 @@ export function GetTreeForNode(arg1:string,arg2:number,arg3:number):Promise<main
 
 export function OpenFile(arg1:string):Promise<void>;
 
+export function OpenSvgInInkscape(arg1:string):Promise<string>;
+
 export function PreviewSQLQuery(arg1:main.SQLQueryRequest):Promise<main.SQLQueryPreviewResult>;
 
 export function ProcessReportImagesForExport(arg1:string,arg2:boolean):Promise<string>;

@@ -24,6 +24,7 @@ import (
 	// Wails runtime met een alias 'wailsruntime':
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
 type App struct {
 	ctx context.Context
 	db  *sql.DB
@@ -2259,4 +2260,64 @@ func (a *App) GetDrawingObjects() ([]DrawingItem, error) {
 		drawings = append(drawings, d)
 	}
 	return drawings, nil
+}
+
+// OpenSvgInInkscape opent de SVG-string in Inkscape en wacht tot het klaar is.
+func (a *App) OpenSvgInInkscape(svgContent string) (string, error) {
+	// 1. Maak een tijdelijk bestand aan
+	tmpDir := os.TempDir()
+	tmpFile, err := os.CreateTemp(tmpDir, "knowledge_drawing_*.svg")
+	if err != nil {
+		return "", fmt.Errorf("kon tijdelijk bestand niet aanmaken: %v", err)
+	}
+	tmpFileName := tmpFile.Name()
+	tmpFile.Close()
+
+	// 2. Schrijf de SVG content weg
+	err = os.WriteFile(tmpFileName, []byte(svgContent), 0644)
+	if err != nil {
+		return "", fmt.Errorf("kon niet naar tijdelijk bestand schrijven: %v", err)
+	}
+	defer os.Remove(tmpFileName)
+
+	// 3. Bepaal het juiste uitvoerbare pad voor Inkscape
+	var inkscapePath string
+	if runtime.GOOS == "windows" {
+		// Controleer standaard installatiepaden op Windows
+		possiblePaths := []string{
+			`C:\Program Files\Inkscape\bin\inkscape.exe`,
+			`C:\Program Files\Inkscape\inkscape.exe`,
+			`C:\Program Files (x86)\Inkscape\bin\inkscape.exe`,
+		}
+		for _, p := range possiblePaths {
+			if _, err := os.Stat(p); err == nil {
+				inkscapePath = p
+				break
+			}
+		}
+	}
+
+	// Als we hem niet in Program Files vonden, probeer via PATH
+	if inkscapePath == "" {
+		path, err := exec.LookPath("inkscape")
+		if err != nil {
+			return "", fmt.Errorf("Inkscape kon niet worden gevonden op de computer. Controleer de installatie.")
+		}
+		inkscapePath = path
+	}
+
+	// 4. Start het proces en WACHT tot Inkscape wordt afgesloten
+	cmd := exec.Command(inkscapePath, tmpFileName)
+	err = cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("fout bij het uitvoeren van Inkscape: %v", err)
+	}
+
+	// 5. Lees het aangepaste bestand weer uit
+	updatedBytes, err := os.ReadFile(tmpFileName)
+	if err != nil {
+		return "", fmt.Errorf("kon het aangepaste SVG-bestand niet uitlezen: %v", err)
+	}
+
+	return string(updatedBytes), nil
 }

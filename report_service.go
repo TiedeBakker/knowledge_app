@@ -68,12 +68,19 @@ type SectionTOCConfig struct {
 	Title    string `json:"title"`     // Bijv. "In dit onderdeel"
 }
 
+type BreadcrumbConfig struct {
+	Enabled   bool   `json:"enabled"`
+	MaxSteps  int    `json:"max_steps"` // Hoeveel stappen maximaal terug (bijv. 1 of 2)
+	Separator string `json:"separator"` // Bijv. " / " of " › "
+}
+
 type LevelConfig struct {
-	NumberingStyle string            `json:"numbering_style"` // "numeric", "alpha_upper", etc.
+	NumberingStyle string            `json:"numbering_style"`
 	InheritParent  *bool             `json:"inherit_parent"`
 	HeaderCSS      string            `json:"header_css"`
 	Fields         []V2FieldDef      `json:"fields"`
-	SectionTOC     *SectionTOCConfig `json:"section_toc,omitempty"` // <-- NIEUW: optionele level-TOC
+	SectionTOC     *SectionTOCConfig `json:"section_toc,omitempty"`
+	Breadcrumbs    *BreadcrumbConfig `json:"breadcrumbs,omitempty"` // <-- NIEUW
 }
 
 type V2ReportConfig struct {
@@ -970,7 +977,9 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 	// 5. TOC & Boom HTML genereren
 	tocHTML := a.v2GenerateTOC(*nodeTree, config.GlobalSettings.TOC, config.Levels)
 
-	initialPath := []PathNode{{Index: 1, Level: 1}}
+	// Initiële path inclusief root objectID en titel voor breadcrumbs
+	initialPath := []PathNode{{Index: 1, Level: 1, ObjectID: rootObjectId, Title: rootTitle}}
+	
 	renderedHTML, err := a.v2RenderNodeRecursive(*nodeTree, viewName, config, initialPath)
 	if err != nil {
 		return "", fmt.Errorf("v2 boom HTML renderen mislukt: %w", err)
@@ -985,7 +994,6 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 
 	return fullWrapper, nil
 }
-
 // v2RenderHTML genereert de HTML voor de v2-weergave
 func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]any, fields []V2FieldDef) (string, error) {
 	var htmlBuilder strings.Builder
@@ -1238,6 +1246,7 @@ func (a *App) v2FetchReportNodeRecursive(viewName string, primaryKeyCol string, 
 }
 
 // v2RenderNodeRecursive bouwt recursief de HTML op voor een knoop en al zijn kinderen
+// v2RenderNodeRecursive bouwt recursief de HTML op voor een knoop en al zijn kinderen
 func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V2ReportConfig, path []PathNode) (string, error) {
 	var htmlBuilder strings.Builder
 
@@ -1273,11 +1282,18 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V
 	htmlBuilder.WriteString(fmt.Sprintf(`
 	<div class="v2-node-wrapper level-%d" style="margin-bottom: 36px;">
 		<header class="v2-report-header" style="margin-bottom: 16px;">
+`, node.Level))
+
+	// Als breadcrumbs aan staan voor dit niveau, render ze direct boven de titel
+	if hasLevelCfg && levelCfg.Breadcrumbs != nil && levelCfg.Breadcrumbs.Enabled {
+		htmlBuilder.WriteString(v2GenerateBreadcrumbs(path, *levelCfg.Breadcrumbs))
+	}
+
+	htmlBuilder.WriteString(fmt.Sprintf(`
 			<h%d id="node-%s" class="book-main-title editable-object-heading" data-object-id="%s" style="margin: 0 0 4px 0; cursor: pointer; %s">%s</h%d>
 			<div style="font-size: 0.8rem; color: #64748b;">Niveau %d | ID: %s</div>
 		</header>
 `,
-		node.Level,
 		headerTag,
 		html.EscapeString(node.ObjectID),
 		html.EscapeString(node.ObjectID),
@@ -1304,7 +1320,18 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V
 
 	// 4. Kinderen recursief verwerken met uitgebreid pad
 	for i, child := range node.Children {
-		childPath := append(append([]PathNode{}, path...), PathNode{Index: i + 1, Level: child.Level})
+		childTitle := fmt.Sprintf("%v", child.Data["display_title"])
+		if childTitle == "" || childTitle == "<nil>" {
+			childTitle = fmt.Sprintf("Object: %s", child.ObjectID)
+		}
+		
+		childPath := append(append([]PathNode{}, path...), PathNode{
+			Index:    i + 1,
+			Level:    child.Level,
+			ObjectID: child.ObjectID,
+			Title:    childTitle,
+		})
+
 		childHTML, err := a.v2RenderNodeRecursive(child, viewName, config, childPath)
 		if err == nil {
 			htmlBuilder.WriteString(childHTML)
@@ -1313,7 +1340,6 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V
 
 	return htmlBuilder.String(), nil
 }
-
 // Hulpmethodes voor opmaak per niveau
 // Helper om HTML header tag te bepalen (h1 t/m h6)
 func getHeaderTagLevel(level int) int {
@@ -1560,8 +1586,10 @@ func toRoman(number int) string {
 }
 
 type PathNode struct {
-	Index int
-	Level int
+	Index    int
+	Level    int
+	ObjectID string // <-- Toegevoegd voor directe breadcrumb links
+	Title    string // <-- Toegevoegd voor de weergavenaam in de breadcrumb
 }
 
 func formatHierarchyNumber(path []PathNode, levels map[string]LevelConfig) string {
@@ -1745,4 +1773,55 @@ func formatInlineHTML(input string) string {
 	tooltipRegex := regexp.MustCompile(`&lt;abbr title=&#34;([^&]+)&#34;&gt;([^&]+)&lt;/abbr&gt;`)
 	safe = tooltipRegex.ReplaceAllString(safe, `<abbr title="$1" class="report-abbr">$2</abbr>`)
 	return safe
+}
+
+func v2GenerateBreadcrumbs(path []PathNode, config BreadcrumbConfig) string {
+	// We willen alleen de bovenliggende stappen tonen (laatste element is de huidige node zelf)
+	if !config.Enabled || len(path) <= 1 {
+		return ""
+	}
+
+	maxSteps := config.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = 2
+	}
+
+	separator := config.Separator
+	if separator == "" {
+		separator = " › "
+	}
+
+	// Bereken vanaf welke stap we beginnen te tonen
+	startIdx := len(path) - 1 - maxSteps
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	var parts []string
+	// Exclusief de allerlaatste (dat ben je zelf)
+	for i := startIdx; i < len(path)-1; i++ {
+		p := path[i]
+		title := p.Title
+		if title == "" || title == "<nil>" {
+			title = "Onderdeel"
+		}
+
+		linkHTML := fmt.Sprintf(`<a href="#node-%s" style="color: #0284c7; text-decoration: none;">%s</a>`,
+			html.EscapeString(p.ObjectID),
+			html.EscapeString(title),
+		)
+		parts = append(parts, linkHTML)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	joinedLinks := strings.Join(parts, separator)
+
+	return fmt.Sprintf(`
+		<div class="v2-breadcrumbs" style="font-size: 0.8rem; color: #64748b; margin-bottom: 6px;">
+			%s
+		</div>
+	`, joinedLinks)
 }

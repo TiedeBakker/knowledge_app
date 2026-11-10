@@ -154,8 +154,11 @@ export const BaseModule: React.FC = () => {
   }, [config.rootObjectId, config.maxDepth, config.templateId]);
 
 
-// KLIK-AFHANDELING VOOR BIJLAGE POPUP IN RAPPORT PREVIEW
+// KLIK-AFHANDELING VOOR BIJLAGE POPUP DIRECT OP DE PREVIEW CONTAINER
   useEffect(() => {
+    const previewContainer = rightPaneRef.current;
+    if (!previewContainer) return;
+
     const handlePreviewClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const link = target.closest('a');
@@ -164,14 +167,26 @@ export const BaseModule: React.FC = () => {
       const href = link.getAttribute('href');
       if (!href || !href.startsWith('#')) return;
 
-      const targetId = href.substring(1); // bijv. "node-019fbf7e..."
-      const targetElement = document.getElementById(targetId);
+      const rawHash = href.substring(1); // bijv. "node-01a0a534..."
+      const cleanId = rawHash.replace('node-', '');
 
-      // Zoek of het doel-element zelf een bijlage is, of ergens binnen een bijlage-item zit
-      const appendixItem = targetElement?.closest('.v2-appendix-item');
+      // Zoek alle appendix items in de DOM
+      const allAppendices = document.querySelectorAll('.v2-appendix-item');
+      let appendixItem: HTMLElement | null = null;
+
+      for (const app of Array.from(allAppendices)) {
+        const appId = app.id; // bijv. "node-01a0a534..."
+        const cleanAppId = appId.replace('node-', '');
+
+        if (appId === rawHash || cleanAppId === cleanId || appId.includes(cleanId)) {
+          appendixItem = app as HTMLElement;
+          break;
+        }
+      }
 
       if (appendixItem) {
-        e.preventDefault(); // Blokkeer het scrollen/verspringen volledig!
+        e.preventDefault();
+        e.stopPropagation(); // Voorkom dat de container of editor de klik overneemt
 
         const titleEl = appendixItem.querySelector('h3') || appendixItem.querySelector('h2');
         const title = titleEl ? titleEl.textContent : 'Bijlage';
@@ -192,12 +207,11 @@ export const BaseModule: React.FC = () => {
       }
     };
 
-    document.addEventListener('click', handlePreviewClick);
+    previewContainer.addEventListener('click', handlePreviewClick);
     return () => {
-      document.removeEventListener('click', handlePreviewClick);
+      previewContainer.removeEventListener('click', handlePreviewClick);
     };
-  }, []);
-  
+  }, [reportHtml]); // Wordt opnieuw gebonden zodra de preview ververst
   const handleConfigChange = <K extends keyof BaseModuleConfig>(
     key: K,
     value: BaseModuleConfig[K]

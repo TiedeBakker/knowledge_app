@@ -2015,24 +2015,23 @@ func getAppendixModalScriptHTML() string {
 		if (!href || !href.startsWith('#')) return;
 		
 		const targetId = href.substring(1);
-		const targetElement = document.getElementById(targetId);
 		
-		// Controleer of het doelbestemming een bijlage-item is
-		if (targetElement && targetElement.classList.contains('v2-appendix-item')) {
-			e.preventDefault(); // Voorkom dat de pagina verspringt
+		// Zoek specifiek in de bijlagen-sectie
+		const appendixItem = document.querySelector('.v2-global-appendices #' + targetId);
+		
+		if (appendixItem && appendixItem.classList.contains('v2-appendix-item')) {
+			e.preventDefault();
 			
-			const titleEl = targetElement.querySelector('h3') || targetElement.querySelector('h2');
+			const titleEl = appendixItem.querySelector('h3') || appendixItem.querySelector('h2');
 			const title = titleEl ? titleEl.textContent : 'Bijlage';
 			
-			// Kloon de inhoud van de bijlage voor in de popup
-			const clone = targetElement.cloneNode(true);
+			const clone = appendixItem.cloneNode(true);
 			
 			document.getElementById('appendix-modal-title').textContent = title;
 			const contentContainer = document.getElementById('appendix-modal-content');
 			contentContainer.innerHTML = '';
 			contentContainer.appendChild(clone);
 
-			// Toon de popup
 			document.getElementById('appendix-modal-overlay').style.display = 'flex';
 		}
 	});
@@ -2041,12 +2040,10 @@ func getAppendixModalScriptHTML() string {
 		document.getElementById('appendix-modal-overlay').style.display = 'none';
 	}
 
-	// Sluiten via ESC-toets
 	window.addEventListener('keydown', function(e) {
 		if (e.key === 'Escape') closeAppendixModal();
 	});
 
-	// Sluiten bij klikken op de achtergrond overlay
 	document.getElementById('appendix-modal-overlay').addEventListener('click', function(e) {
 		if (e.target === this) closeAppendixModal();
 	});

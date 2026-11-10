@@ -110,7 +110,7 @@ export function SaveParameterValue(arg1:main.ParameterValueEntity):Promise<void>
 
 export function SaveParsedTemplate(arg1:string,arg2:any,arg3:main.ReportTemplateConfig):Promise<void>;
 
-export function SaveRelationValue(arg1:main.RelationValueEntity):Promise<void>;
+export function SaveRelationValue(arg1:main.RelationValueEntity):Promise<string>;
 
 export function SaveTemplateRecord(arg1:main.DbTemplateRecord):Promise<main.DbTemplateRecord>;
 

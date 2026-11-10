@@ -153,13 +153,58 @@ export const BaseModule: React.FC = () => {
     reloadReportPreview(false);
   }, [config.rootObjectId, config.maxDepth, config.templateId]);
 
+
+// KLIK-AFHANDELING VOOR BIJLAGE POPUP IN RAPPORT PREVIEW
+  useEffect(() => {
+    const handlePreviewClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest('a');
+      if (!link) return;
+
+      const href = link.getAttribute('href');
+      if (!href || !href.startsWith('#')) return;
+
+      const targetId = href.substring(1); // bijv. "node-019fbf7e..."
+      const targetElement = document.getElementById(targetId);
+
+      // Zoek of het doel-element zelf een bijlage is, of ergens binnen een bijlage-item zit
+      const appendixItem = targetElement?.closest('.v2-appendix-item');
+
+      if (appendixItem) {
+        e.preventDefault(); // Blokkeer het scrollen/verspringen volledig!
+
+        const titleEl = appendixItem.querySelector('h3') || appendixItem.querySelector('h2');
+        const title = titleEl ? titleEl.textContent : 'Bijlage';
+
+        // Kloon de inhoud van de bijlage voor in de popup
+        const clone = appendixItem.cloneNode(true);
+
+        const titleContainer = document.getElementById('appendix-modal-title');
+        const contentContainer = document.getElementById('appendix-modal-content');
+        const overlay = document.getElementById('appendix-modal-overlay');
+
+        if (titleContainer) titleContainer.textContent = title;
+        if (contentContainer) {
+          contentContainer.innerHTML = '';
+          contentContainer.appendChild(clone);
+        }
+        if (overlay) overlay.style.display = 'flex';
+      }
+    };
+
+    document.addEventListener('click', handlePreviewClick);
+    return () => {
+      document.removeEventListener('click', handlePreviewClick);
+    };
+  }, []);
+  
   const handleConfigChange = <K extends keyof BaseModuleConfig>(
     key: K,
     value: BaseModuleConfig[K]
   ) => {
     setConfig((prev: BaseModuleConfig) => ({ ...prev, [key]: value }));
   };
-  
+
 
   // AFHANDELING DUBBELKLIK OP RICHTEXT IN PREVIEW
   const handleOpenRichTextEditorFromReport = (paramValueId: string, objectId: string) => {
@@ -558,6 +603,38 @@ export const BaseModule: React.FC = () => {
           onSave={handleSaveRichText}
         />
       )}
+
+      {/* Globale Bijlage Popup Modal voor Live Preview */}
+      <div 
+        id="appendix-modal-overlay" 
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            document.getElementById('appendix-modal-overlay')!.style.display = 'none';
+          }
+        }}
+        style={{display: 'none', position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, alignItems: 'center', justifyContent: 'center', padding: '20px'}}
+      >
+        <div style={{background: '#fff', borderRadius: '8px', maxWidth: '750px', width: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', overflow: 'hidden'}}>
+          <div style={{padding: '14px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <strong style={{fontSize: '1.1rem', color: '#0f172a'}} id="appendix-modal-title">Bijlage</strong>
+            <button 
+              onClick={() => document.getElementById('appendix-modal-overlay')!.style.display = 'none'} 
+              style={{background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#64748b', padding: '0 4px', lineHeight: 1}}
+            >
+              &times;
+            </button>
+          </div>
+          <div id="appendix-modal-content" style={{padding: '24px', overflowY: 'auto', flex: 1, fontSize: '0.95rem', lineHeight: 1.6, color: '#1e293b'}}></div>
+          <div style={{padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end'}}>
+            <button 
+              onClick={() => document.getElementById('appendix-modal-overlay')!.style.display = 'none'} 
+              style={{background: '#0284c7', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500}}
+            >
+              Sluiten
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

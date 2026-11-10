@@ -609,29 +609,34 @@ func NewUUIDv7() string {
 	return string(buf)
 }
 
-func (a *App) SaveRelationValue(rel RelationValueEntity) error {
+func (a *App) SaveRelationValue(rel RelationValueEntity) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	relID := rel.ID
 
-	if rel.ID == "" {
-		// Expliciet UUIDv7 genereren voor nieuwe relaties
-		newID := NewUUIDv7()
+	if relID == "" {
+		relID = NewUUIDv7()
 
 		query := `
 			INSERT INTO relation_values (id, relation_id, source_id, target_id, volgorde, is_confidential, valid_from, valid_to, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`
-		_, err := a.db.ExecContext(a.ctx, query, newID, rel.RelationID, rel.SourceID, rel.TargetID, rel.Volgorde, rel.IsConfidential, rel.ValidFrom, rel.ValidTo, now)
-		return err
+		_, err := a.db.ExecContext(a.ctx, query, relID, rel.RelationID, rel.SourceID, rel.TargetID, rel.Volgorde, rel.IsConfidential, rel.ValidFrom, rel.ValidTo, now)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		query := `
+			UPDATE relation_values 
+			SET relation_id = ?, source_id = ?, target_id = ?, volgorde = ?, is_confidential = ?, valid_from = ?, valid_to = ?, updated_at = ?
+			WHERE id = ?
+		`
+		_, err := a.db.ExecContext(a.ctx, query, rel.RelationID, rel.SourceID, rel.TargetID, rel.Volgorde, rel.IsConfidential, rel.ValidFrom, rel.ValidTo, now, relID)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	// Bestaande relatie bijwerken
-	query := `
-		UPDATE relation_values 
-		SET relation_id = ?, source_id = ?, target_id = ?, volgorde = ?, is_confidential = ?, valid_from = ?, valid_to = ?, updated_at = ?
-		WHERE id = ?
-	`
-	_, err := a.db.ExecContext(a.ctx, query, rel.RelationID, rel.SourceID, rel.TargetID, rel.Volgorde, rel.IsConfidential, rel.ValidFrom, rel.ValidTo, now, rel.ID)
-	return err
+	return relID, nil
 }
 // DeleteRelationValue voert een soft-delete uit
 func (a *App) DeleteRelationValue(id string) error {

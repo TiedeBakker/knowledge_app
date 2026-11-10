@@ -340,5 +340,5 @@ figure[data-text-flow="wrap"][data-width="33%"] {
 </body>
 </html>`
 
-	return strings.Replace(htmlTemplate, "{{BODY_CONTENT}}", bodyHTML, 1)
+	return strings.Replace(htmlTemplate, "{{BODY_CONTENT}}", bodyHTML + getAppendixModalScriptHTML(), 1)
 }

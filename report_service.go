@@ -56,10 +56,16 @@ type GlobalSettings struct {
 	Numbering NumberingConfig `json:"numbering"`
 }
 
-// GlobalSettings voor v2 sjablonen
+type AppendicesPolicy struct {
+	Enabled        bool   `json:"enabled"`
+	RenderLocation string `json:"render_location"` // bijv. "end_of_document"
+	Title          string `json:"title"`           // bijv. "Bijlagen en Verdiepende Documentatie"
+}
+
 type V2GlobalSettings struct {
-	TOC      TOCConfig `json:"toc"`
-	MaxDepth int       `json:"max_depth"` // <- Nieuw: instelbare maximale diepte
+	TOC              TOCConfig         `json:"toc"`
+	MaxDepth         int               `json:"max_depth"`
+	AppendicesPolicy *AppendicesPolicy `json:"appendices_policy,omitempty"`
 }
 
 type SectionTOCConfig struct {
@@ -74,13 +80,19 @@ type BreadcrumbConfig struct {
 	Separator string `json:"separator"` // Bijv. " / " of " › "
 }
 
+type AppendicesConfig struct {
+	Enabled bool   `json:"enabled"`
+	Title   string `json:"title"` // Bijv. "Bijlagen" of "Verdieping"
+}
+
 type LevelConfig struct {
-	NumberingStyle string            `json:"numbering_style"`
-	InheritParent  *bool             `json:"inherit_parent"`
-	HeaderCSS      string            `json:"header_css"`
-	Fields         []V2FieldDef      `json:"fields"`
-	SectionTOC     *SectionTOCConfig `json:"section_toc,omitempty"`
-	Breadcrumbs    *BreadcrumbConfig `json:"breadcrumbs,omitempty"` // <-- NIEUW
+	NumberingStyle   string            `json:"numbering_style"`
+	InheritParent    *bool             `json:"inherit_parent"`
+	HeaderCSS        string            `json:"header_css"`
+	Fields           []V2FieldDef      `json:"fields"`
+	SectionTOC       *SectionTOCConfig `json:"section_toc,omitempty"`
+	Breadcrumbs      *BreadcrumbConfig `json:"breadcrumbs,omitempty"`
+	AppendicesConfig *AppendicesConfig `json:"appendices_config,omitempty"` // <-- NIEUW
 }
 
 type V2ReportConfig struct {
@@ -955,7 +967,7 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 		maxDepth = 10
 	}
 
-	// 3. Gehele boomstructuur ophalen tot maxDepth
+// 3. Gehele boomstructuur ophalen tot maxDepth
 	nodeTree, err := a.v2FetchReportNodeRecursive(viewName, pkCol, rootObjectId, 1, maxDepth)
 	if err != nil {
 		return "", fmt.Errorf("v2 boom ophalen mislukt: %w", err)
@@ -974,15 +986,27 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 		</div>
 	`, formatInlineHTML(rootTitle))
 
-	// 5. TOC & Boom HTML genereren
-	tocHTML := a.v2GenerateTOC(*nodeTree, config.GlobalSettings.TOC, config.Levels)
+	// 5. Verzamel AL eerst alle unieke appendices uit de boom
+	var allAppendices []V2ReportNode
+	collectedMap := make(map[string]bool)
+	collectAllAppendices(*nodeTree, collectedMap, &allAppendices)
+
+	// 6. Genereer TOC (inclusief de verzamelde appendices in de inhoudsopgave)
+	tocHTML := a.v2GenerateTOC(*nodeTree, config.GlobalSettings.TOC, config.Levels, allAppendices, config.GlobalSettings.AppendicesPolicy)
 
 	// Initiële path inclusief root objectID en titel voor breadcrumbs
 	initialPath := []PathNode{{Index: 1, Level: 1, ObjectID: rootObjectId, Title: rootTitle}}
-	
+
 	renderedHTML, err := a.v2RenderNodeRecursive(*nodeTree, viewName, config, initialPath)
 	if err != nil {
 		return "", fmt.Errorf("v2 boom HTML renderen mislukt: %w", err)
+	}
+
+	// 7. Genereer de globale bijlagen-sectie voor achteraan het rapport
+	globalAppendicesHTML := ""
+	policy := config.GlobalSettings.AppendicesPolicy
+	if (policy == nil || policy.Enabled) && len(allAppendices) > 0 {
+		globalAppendicesHTML = a.v2RenderGlobalAppendicesHTML(allAppendices, viewName, config)
 	}
 
 	fullWrapper := fmt.Sprintf(`
@@ -990,10 +1014,12 @@ func (a *App) V2_GenerateBookReport(rootObjectId string, templateId string) (str
 			%s
 			%s
 			%s
-		</div>`, bookHeaderHTML, tocHTML, renderedHTML)
+			%s
+		</div>`, bookHeaderHTML, tocHTML, renderedHTML, globalAppendicesHTML)
 
 	return fullWrapper, nil
 }
+
 // v2RenderHTML genereert de HTML voor de v2-weergave
 func (a *App) v2RenderHTML(viewName string, objectId string, dataMap map[string]any, fields []V2FieldDef) (string, error) {
 	var htmlBuilder strings.Builder
@@ -1181,10 +1207,11 @@ func (a *App) v2FetchObjectMap(viewName string, primaryKeyCol string, objectId s
 
 // V2ReportNode stelt een knoop in de V2 rapportageboom voor
 type V2ReportNode struct {
-	ObjectID string         `json:"objectId"`
-	Level    int            `json:"level"`
-	Data     map[string]any `json:"data"`
-	Children []V2ReportNode `json:"children,omitempty"`
+	ObjectID   string         `json:"objectId"`
+	Level      int            `json:"level"`
+	Data       map[string]any `json:"data"`
+	Children   []V2ReportNode `json:"children,omitempty"`
+	Appendices []V2ReportNode `json:"appendices,omitempty"` // Aparte lijst voor bijlagen
 }
 
 // v2FetchReportNodeRecursive haalt de view-data op voor het huidige object en bouwt recursief de kinderen op
@@ -1224,24 +1251,45 @@ func (a *App) v2FetchReportNodeRecursive(viewName string, primaryKeyCol string, 
 		return node, nil
 	}
 
-	// NIEUW: Sorteer relaties op het veld "volgorde" (met nummer-conversie)
+	// Sorteer relaties op het veld "volgorde"
 	sort.SliceStable(relations, func(i, j int) bool {
 		return getVolgordeValue(relations[i]["volgorde"]) < getVolgordeValue(relations[j]["volgorde"])
 	})
 
-	// 5. Haal voor elk gekoppeld target_id recursief de kind-node op
+	// 5. Haal voor elk gekoppeld target_id recursief de kind-node op (of bijlage)
 	for _, rel := range relations {
 		targetID, ok := rel["target_id"].(string)
 		if !ok || strings.TrimSpace(targetID) == "" {
 			continue
 		}
 
-		childNode, err := a.v2FetchReportNodeRecursive(viewName, primaryKeyCol, targetID, currentDepth+1, maxDepth)
-		if err == nil && childNode != nil {
-			node.Children = append(node.Children, *childNode)
+		// Robuuste check voor de bijlage-vlag (werkt voor float64, int, bool of string)
+		isBijlage := false
+		if bVal, exists := rel["is_bijlage"]; exists && bVal != nil {
+			switch v := bVal.(type) {
+			case float64:
+				isBijlage = (v == 1)
+			case int:
+				isBijlage = (v == 1)
+			case bool:
+				isBijlage = v
+			case string:
+				isBijlage = (v == "1" || strings.ToLower(v) == "true")
+			}
+		}
+
+		if isBijlage {
+			appendixNode, err := a.v2FetchReportNodeRecursive(viewName, primaryKeyCol, targetID, currentDepth+1, maxDepth)
+			if err == nil && appendixNode != nil {
+				node.Appendices = append(node.Appendices, *appendixNode)
+			}
+		} else {
+			childNode, err := a.v2FetchReportNodeRecursive(viewName, primaryKeyCol, targetID, currentDepth+1, maxDepth)
+			if err == nil && childNode != nil {
+				node.Children = append(node.Children, *childNode)
+			}
 		}
 	}
-
 	return node, nil
 }
 
@@ -1313,18 +1361,20 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V
 	}
 
 	// 3. Render de veldentabel van het huidige object
-	htmlBuilder.WriteString(`<table style="width: 100%; border-collapse: collapse; margin-top: 8px;">`)
+	htmlBuilder.WriteString(`<table style="width: 100%%; border-collapse: collapse; margin-top: 8px;">`)
 	fieldsHTML := a.renderFieldsHTML(node.ObjectID, node.Data, activeFields)
 	htmlBuilder.WriteString(fieldsHTML)
-	htmlBuilder.WriteString(`</table></div>`)
+	htmlBuilder.WriteString(`</table>`)
 
+	
+	htmlBuilder.WriteString(`</div>`)
 	// 4. Kinderen recursief verwerken met uitgebreid pad
 	for i, child := range node.Children {
 		childTitle := fmt.Sprintf("%v", child.Data["display_title"])
 		if childTitle == "" || childTitle == "<nil>" {
 			childTitle = fmt.Sprintf("Object: %s", child.ObjectID)
 		}
-		
+
 		childPath := append(append([]PathNode{}, path...), PathNode{
 			Index:    i + 1,
 			Level:    child.Level,
@@ -1340,6 +1390,67 @@ func (a *App) v2RenderNodeRecursive(node V2ReportNode, viewName string, config V
 
 	return htmlBuilder.String(), nil
 }
+// collectAllAppendices doorloopt de boom recursief en verzamelt alle unieke bijlagen zonder dubbelingen
+func collectAllAppendices(node V2ReportNode, collected map[string]bool, result *[]V2ReportNode) {
+	for _, app := range node.Appendices {
+		if !collected[app.ObjectID] {
+			collected[app.ObjectID] = true
+			*result = append(*result, app)
+		}
+		// Doorzoek eventueel ook de sub-boom van de bijlage zelf
+		collectAllAppendices(app, collected, result)
+	}
+	for _, child := range node.Children {
+		collectAllAppendices(child, collected, result)
+	}
+}
+
+// v2RenderGlobalAppendicesHTML genereert de centrale bijlagen-sectie voor achteraan het rapport
+func (a *App) v2RenderGlobalAppendicesHTML(appendices []V2ReportNode, viewName string, config V2ReportConfig) string {
+	if len(appendices) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	title := "Bijlagen"
+	if config.GlobalSettings.AppendicesPolicy != nil && config.GlobalSettings.AppendicesPolicy.Title != "" {
+		title = config.GlobalSettings.AppendicesPolicy.Title
+	}
+
+	sb.WriteString(fmt.Sprintf(`
+		<section class="v2-global-appendices" style="margin-top: 48px; border-top: 2px solid #0f172a; padding-top: 24px; page-break-before: always;">
+			<h2 style="font-size: 1.8rem; color: #0f172a; margin-bottom: 24px;">%s</h2>
+	`, html.EscapeString(title)))
+
+	for idx, app := range appendices {
+		appTitle := fmt.Sprintf("%v", app.Data["display_title"])
+		if appTitle == "" || appTitle == "<nil>" {
+			appTitle = fmt.Sprintf("Bijlage %d", idx+1)
+		}
+
+		sb.WriteString(fmt.Sprintf(`
+			<div id="node-%s" class="v2-appendix-item" style="margin-bottom: 36px; page-break-inside: avoid;">
+				<h3 style="font-size: 1.3rem; color: #1e293b; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 12px;">Bijlage %d: %s</h3>
+		`, html.EscapeString(app.ObjectID), idx+1, html.EscapeString(appTitle)))
+
+		// Bepaal actieve velden voor de bijlage op basis van zijn niveau
+		levelStr := fmt.Sprintf("%d", app.Level)
+		levelCfg, hasLevelCfg := config.Levels[levelStr]
+		activeFields := config.Fields
+		if hasLevelCfg && len(levelCfg.Fields) > 0 {
+			activeFields = levelCfg.Fields
+		}
+
+		sb.WriteString(`<table style="width: 100%%; border-collapse: collapse; margin-top: 8px;">`)
+		sb.WriteString(a.renderFieldsHTML(app.ObjectID, app.Data, activeFields))
+		sb.WriteString(`</table>`)
+		sb.WriteString(`</div>`)
+	}
+
+	sb.WriteString(`</section>`)
+	return sb.String()
+}
+
 // Hulpmethodes voor opmaak per niveau
 // Helper om HTML header tag te bepalen (h1 t/m h6)
 func getHeaderTagLevel(level int) int {
@@ -1489,7 +1600,8 @@ func (a *App) renderFieldsHTML(objectId string, dataMap map[string]any, fields [
 }
 
 // v2GenerateTOC bouwt recursief de HTML-inhoudsopgave op
-func (a *App) v2GenerateTOC(node V2ReportNode, config TOCConfig, levels map[string]LevelConfig) string {
+// v2GenerateTOC bouwt recursief de HTML-inhoudsopgave op (inclusief globale bijlagen)
+func (a *App) v2GenerateTOC(node V2ReportNode, config TOCConfig, levels map[string]LevelConfig, allAppendices []V2ReportNode, globalPolicy *AppendicesPolicy) string {
 	if !config.Enabled {
 		return ""
 	}
@@ -1514,10 +1626,38 @@ func (a *App) v2GenerateTOC(node V2ReportNode, config TOCConfig, levels map[stri
 	initialPath := []PathNode{{Index: 1, Level: 1}}
 	a.v2BuildTOCItems(node, 1, maxDepth, initialPath, config, levels, &tocBuilder)
 
+	// --- BIJLAGE ITEMS TOEVOEGEN AAN DE TOC ---
+	if (globalPolicy == nil || globalPolicy.Enabled) && len(allAppendices) > 0 {
+		appendicesTitle := "Bijlagen"
+		if globalPolicy != nil && globalPolicy.Title != "" {
+			appendicesTitle = globalPolicy.Title
+		}
+
+		// Hoofdcategorie "Bijlagen"
+		tocBuilder.WriteString(fmt.Sprintf(`
+			<li style="margin-top: 14px; margin-bottom: 6px; font-weight: bold;">
+				<a href="#v2-global-appendices-section" style="color: #2563eb; text-decoration: none;">%s</a>
+			</li>
+		`, html.EscapeString(appendicesTitle)))
+
+		// Individuele bijlagen als sub-items
+		for idx, app := range allAppendices {
+			appTitle := fmt.Sprintf("%v", app.Data["display_title"])
+			if appTitle == "" || appTitle == "<nil>" {
+				appTitle = fmt.Sprintf("Bijlage %d", idx+1)
+			}
+			tocBuilder.WriteString(fmt.Sprintf(`
+				<li style="margin-bottom: 4px; padding-left: 16px;">
+					<a href="#node-%s" style="color: #2563eb; text-decoration: none; font-size: 0.9rem;">Bijlage %d: %s</a>
+				</li>
+			`, html.EscapeString(app.ObjectID), idx+1, html.EscapeString(appTitle)))
+		}
+	}
+	// ----------------------------------------
+
 	tocBuilder.WriteString(`</ul></nav>`)
 	return tocBuilder.String()
 }
-
 // v2BuildTOCItems helpt recursief bij het toevoegen van regels in de TOC
 func (a *App) v2BuildTOCItems(node V2ReportNode, currentDepth int, maxDepth int, path []PathNode, config TOCConfig, levels map[string]LevelConfig, builder *strings.Builder) {
 	if currentDepth > maxDepth {
@@ -1820,8 +1960,96 @@ func v2GenerateBreadcrumbs(path []PathNode, config BreadcrumbConfig) string {
 	joinedLinks := strings.Join(parts, separator)
 
 	return fmt.Sprintf(`
-		<div class="v2-breadcrumbs" style="font-size: 0.8rem; color: #64748b; margin-bottom: 6px;">
+		<div class="v2-breadcrumbs" style="font-size: 0.7rem; color: #64748b; margin-bottom: 6px;">
 			%s
 		</div>
 	`, joinedLinks)
+}
+
+// v2RenderAppendicesHTML genereert de weergave voor gekoppelde bijlagen bij een object
+// v2RenderAppendicesHTML genereert de weergave voor gekoppelde bijlagen bij een object
+func (a *App) v2RenderAppendicesHTML(appendices []V2ReportNode) string {
+	if len(appendices) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(`<div class="v2-node-appendices" style="margin-top: 16px; padding: 12px; background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px;">`)
+	sb.WriteString(`<div style="font-weight: 600; font-size: 0.85rem; color: #475569; text-transform: uppercase; margin-bottom: 8px;">Bijlagen / Verdieping</div>`)
+	sb.WriteString(`<ul style="margin: 0; padding-left: 18px; font-size: 0.9rem;">`)
+
+	for _, app := range appendices {
+		appTitle := fmt.Sprintf("%v", app.Data["display_title"])
+		if appTitle == "" || appTitle == "<nil>" {
+			appTitle = fmt.Sprintf("Bijlage: %s", app.ObjectID)
+		}
+
+		sb.WriteString(fmt.Sprintf(`
+			<li style="margin-bottom: 6px;">
+				<a href="#node-%s" style="color: #0284c7; text-decoration: none; font-weight: 500;">%s</a>
+			</li>`, html.EscapeString(app.ObjectID), html.EscapeString(appTitle)))
+	}
+
+	sb.WriteString(`</ul></div>`)
+	return sb.String()
+}
+func getAppendixModalScriptHTML() string {
+	return `
+	<div id="appendix-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; padding:20px;">
+		<div style="background:#fff; border-radius:8px; max-width:750px; width:100%; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 10px 25px rgba(0,0,0,0.2); overflow:hidden; font-family:inherit;">
+			<div style="padding:14px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+				<strong style="font-size:1.1rem; color:#0f172a;" id="appendix-modal-title">Bijlage</strong>
+				<button onclick="closeAppendixModal()" style="background:none; border:none; font-size:1.4rem; cursor:pointer; color:#64748b; padding:0 4px; line-height:1;">&times;</button>
+			</div>
+			<div id="appendix-modal-content" style="padding:24px; overflow-y:auto; flex:1; font-size:0.95rem; line-height:1.6; color:#1e293b;"></div>
+			<div style="padding:12px 20px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end;">
+				<button onclick="closeAppendixModal()" style="background:#0284c7; color:#fff; border:none; padding:8px 16px; border-radius:4px; cursor:pointer; font-size:0.9rem; font-weight:500;">Sluiten</button>
+			</div>
+		</div>
+	</div>
+	<script>
+	document.addEventListener('click', function(e) {
+		const link = e.target.closest('a');
+		if (!link) return;
+		const href = link.getAttribute('href');
+		if (!href || !href.startsWith('#')) return;
+		
+		const targetId = href.substring(1);
+		const targetElement = document.getElementById(targetId);
+		
+		// Controleer of het doelbestemming een bijlage-item is
+		if (targetElement && targetElement.classList.contains('v2-appendix-item')) {
+			e.preventDefault(); // Voorkom dat de pagina verspringt
+			
+			const titleEl = targetElement.querySelector('h3') || targetElement.querySelector('h2');
+			const title = titleEl ? titleEl.textContent : 'Bijlage';
+			
+			// Kloon de inhoud van de bijlage voor in de popup
+			const clone = targetElement.cloneNode(true);
+			
+			document.getElementById('appendix-modal-title').textContent = title;
+			const contentContainer = document.getElementById('appendix-modal-content');
+			contentContainer.innerHTML = '';
+			contentContainer.appendChild(clone);
+
+			// Toon de popup
+			document.getElementById('appendix-modal-overlay').style.display = 'flex';
+		}
+	});
+
+	function closeAppendixModal() {
+		document.getElementById('appendix-modal-overlay').style.display = 'none';
+	}
+
+	// Sluiten via ESC-toets
+	window.addEventListener('keydown', function(e) {
+		if (e.key === 'Escape') closeAppendixModal();
+	});
+
+	// Sluiten bij klikken op de achtergrond overlay
+	document.getElementById('appendix-modal-overlay').addEventListener('click', function(e) {
+		if (e.target === this) closeAppendixModal();
+	});
+	</script>
+	`
 }
